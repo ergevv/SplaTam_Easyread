@@ -3566,3 +3566,4 @@ configs/replica/__pycache__/splatam.cpython-310.pyc
 configs/iphone/splatam.py
 configs/replica/splatam.py
 configs/replica/__pycache__/splatam.cpython-310.pyc
+diff-gaussian-rasterization-w-depth/build/*
