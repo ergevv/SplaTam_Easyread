@@ -13,3 +13,5 @@ python setup.py develop
 
 pip uninstall diff-gaussian-rasterization
 
+git submodule deinit -f diff-gaussian-rasterization-w-depth
+git add diff-gaussian-rasterization-w-depth
