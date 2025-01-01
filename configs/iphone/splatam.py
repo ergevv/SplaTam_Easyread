@@ -4,8 +4,8 @@ from os.path import join as p_join
 primary_device = "cuda:0"
 seed = 0
 
-base_dir = "./experiments/iPhone_Captures" # Root Directory to Save iPhone Dataset
-scene_name = "offline_demo" # Scan Name
+base_dir = "./experiments/Replica" # Root Directory to Save iPhone Dataset
+scene_name = "room0_test3_0" # Scan Name
 num_frames = 10 # Desired number of frames to capture
 depth_scale = 10.0 # Depth Scale used when saving depth
 overwrite = False # Rewrite over dataset if it exists
@@ -26,7 +26,7 @@ mapping_iters = 60
 
 config = dict(
     workdir=f"./{base_dir}/{scene_name}",
-    run_name="SplaTAM_iPhone",
+    run_name="",
     overwrite=overwrite,
     depth_scale=depth_scale,
     num_frames=num_frames,

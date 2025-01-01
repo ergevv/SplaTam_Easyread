@@ -142,7 +142,7 @@ def remove_points(to_remove, params, variables, optimizer):
     for k in keys:
         group = [g for g in optimizer.param_groups if g['name'] == k][0]
         stored_state = optimizer.state.get(group['params'][0], None)
-        if stored_state is not None:
+        if stored_state is not None:  #i更新梯度移动平均值
             stored_state["exp_avg"] = stored_state["exp_avg"][to_keep]
             stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][to_keep]
             del optimizer.state[group['params'][0]]
@@ -150,7 +150,7 @@ def remove_points(to_remove, params, variables, optimizer):
             optimizer.state[group['params'][0]] = stored_state
             params[k] = group["params"][0]
         else:
-            group["params"][0] = torch.nn.Parameter(group["params"][0][to_keep].requires_grad_(True))
+            group["params"][0] = torch.nn.Parameter(group["params"][0][to_keep].requires_grad_(True)) #去除不要的参数
             params[k] = group["params"][0]
     variables['means2D_gradient_accum'] = variables['means2D_gradient_accum'][to_keep]
     variables['denom'] = variables['denom'][to_keep]
@@ -183,7 +183,7 @@ def prune_gaussians(params, variables, optimizer, iter, prune_dict):
                 to_remove = torch.logical_or(to_remove, big_points_ws)
             # 执行移除操作
             params, variables = remove_points(to_remove, params, variables, optimizer)
-            torch.cuda.empty_cache()
+            torch.cuda.empty_cache() #前面删除了些数据，将未被占用的缓存显存释放回系统。这并不会影响当前正在使用的张量或其他对象；它只会释放那些不再需要的缓存部分
         
         # Reset Opacities for all Gaussians
         # 满足if条件，重置高斯不透明度

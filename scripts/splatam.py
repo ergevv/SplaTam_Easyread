@@ -9,9 +9,19 @@ _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.path.insert(0, _BASE_DIR)
 
-print("System Paths:")
-for p in sys.path:
-    print(p)
+# print("System Paths:")
+# for p in sys.path:
+#     print(p)
+
+# os.environ["WANDB_API_KEY"] = '5d144e77a0753829930ea2a15be3e9805f90d96f' # 将引号内的+替换成自己在wandb上的一串值
+# os.environ["WANDB_MODE"] = "offline"   # 离线  
+
+
+# 获取当前进程ID
+pid = os.getpid()
+print(f"Current process ID: {pid}")
+
+#time.sleep(5)  # 暂停500毫秒，即0.5秒
 
 import cv2
 import matplotlib.pyplot as plt
@@ -459,7 +469,7 @@ def add_new_gaussians(params, variables, curr_data, sil_thres, time_idx, mean_sq
         curr_w2c[:3, :3] = build_rotation(curr_cam_rot)
         curr_w2c[:3, 3] = curr_cam_tran
         valid_depth_mask = (curr_data['depth'][0, :, :] > 0)
-        non_presence_mask = non_presence_mask & valid_depth_mask.reshape(-1)
+        non_presence_mask = non_presence_mask & valid_depth_mask.reshape(-1) #只要true的点云
         # 重点函数：get_pointcloud()与initialize_new_params()
         new_pt_cld, mean3_sq_dist = get_pointcloud(curr_data['im'], curr_data['depth'], curr_data['intrinsics'], 
                                     curr_w2c, mask=non_presence_mask, compute_mean_sq_dist=True,
@@ -827,7 +837,7 @@ def rgbd_slam(config: dict):
                     elif config['tracking']['use_depth_loss_thres'] and not do_continue_slam:
                         do_continue_slam = True
                         progress_bar = tqdm(range(num_iters_tracking), desc=f"Tracking Time Step: {time_idx}")
-                        num_iters_tracking = 2*num_iters_tracking
+                        num_iters_tracking = 2*num_iters_tracking #增加迭代次数
                         if config['use_wandb']:
                             wandb_run.log({"Tracking/Extra Tracking Iters Frames": time_idx,
                                         "Tracking/step": wandb_time_step})
@@ -1119,7 +1129,11 @@ if __name__ == "__main__":
 
     parser.add_argument("experiment", type=str, help="Path to experiment file")
 
-    args = parser.parse_args()
+# 假设我们想传递 '/path/to/experiment.yaml' 作为 experiment 参数的值
+    manual_args = ['configs/replica/splatam.py']
+
+# 使用 parse_args() 并传递参数列表
+    args = parser.parse_args(manual_args)
 
     experiment = SourceFileLoader(
         os.path.basename(args.experiment), args.experiment

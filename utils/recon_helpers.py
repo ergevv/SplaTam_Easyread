@@ -10,7 +10,7 @@ def setup_camera(w, h, k, w2c, near=0.01, far=100):
                                 [0.0, 2 * fy / h, -(h - 2 * cy) / h, 0.0],
                                 [0.0, 0.0, far / (far - near), -(far * near) / (far - near)],
                                 [0.0, 0.0, 1.0, 0.0]]).cuda().float().unsqueeze(0).transpose(1, 2)
-    full_proj = w2c.bmm(opengl_proj)
+    full_proj = w2c.bmm(opengl_proj)  #世界坐标投影到屏幕坐标
     cam = Camera(
         image_height=h,
         image_width=w,

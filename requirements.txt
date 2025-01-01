@@ -1,3 +1,8 @@
+torch==1.12.1+cu113
+torchvision==0.13.1+cu113
+torchaudio==0.12.1
+-f https://download.pytorch.org/whl/torch_stable.html
+numpy==1.23.5
 tqdm==4.65.0
 Pillow
 opencv-python
@@ -12,4 +17,4 @@ open3d==0.16.0
 torchmetrics
 cyclonedds
 pytorch-msssim
-git+https://github.com/JonathonLuiten/diff-gaussian-rasterization-w-depth.git@cb65e4b86bc3bd8ed42174b72a62e8d3a3a71110
+# git+https://github.com/JonathonLuiten/diff-gaussian-rasterization-w-depth.git@cb65e4b86bc3bd8ed42174b72a62e8d3a3a71110

@@ -1,0 +1,146 @@
+
+第一帧：
+init_pt_cld：点云位置与颜色，世界坐标系
+mean3_sq_dist：depth_z / ((FX + FY)/2)的平方
+w2c = torch.linalg.inv(pose)  Tc->w
+
+params = {
+    'means3D': means3D,
+    'rgb_colors': init_pt_cld[:, 3:6],
+    'unnorm_rotations': unnorm_rots,
+    'logit_opacities': logit_opacities,
+    'log_scales': torch.tile(torch.log(torch.sqrt(mean3_sq_dist))[..., None], (1, 1)),
+    params['cam_unnorm_rots'] = cam_rots
+    params['cam_trans'] = np.zeros((1, 3, num_frames))
+}
+
+
+'means3D'：3D点云位置，世界坐标系
+'rgb_colors'：3D点云颜色，世界坐标系
+'unnorm_rotations'：3D点云旋转，世界坐标系，四元数，幺元
+'logit_opacities'：3D点云透明度，世界坐标系，0
+'log_scales'：3D点云尺度，世界坐标系，torch.log(torch.sqrt(mean3_sq_dist))
+'cam_unnorm_rots': 相机旋转，世界坐标系，四元数，幺元
+'cam_trans'：相机平移，世界坐标系
+
+variables = {'max_2D_radius': torch.zeros(params['means3D'].shape[0]).cuda().float(),
+'means2D_gradient_accum': torch.zeros(params['means3D'].shape[0]).cuda().float(),
+'denom': torch.zeros(params['means3D'].shape[0]).cuda().float(),
+'timestep': torch.zeros(params['means3D'].shape[0]).cuda().float()},全是0
+variables['scene_radius'] = torch.max(depth)/scene_radius_depth_ratio #计算场景半径，用于高斯点云的密集化处理。场景半径等于最大深度值除以scene_radius_depth_ratio（自定义参数）
+
+配置相机，计算第一帧点云与姿态
+
+遍历每一帧：
+
+遍历对应帧数据
+tracking_curr_data = curr_data = {'cam': cam, 'im': color, 'depth': depth, 'id': iter_time_idx, 'intrinsics': intrinsics, 
+                'w2c': first_frame_w2c, 'iter_gt_w2c_list': curr_gt_w2c}
+
+'iter_gt_w2c_list'：记录每一帧Tc->w
+'intrinsics': intrinsics内参每一帧都一样
+
+第二帧后：
+预测世界坐标下相机的位资，第二帧直接使用第一帧位资，之后两帧之差来预测下一帧
+params['cam_unnorm_rots'] Tc->W
+params['cam_trans']
+
+
+optimizer = 给params每个关键值添加学习率
+
+
+rel_w2c变换矩阵
+transformed_pts 相机坐标系的点云
+
+    rendervar = {
+        'means3D': transformed_pts, 第一帧点云在第二帧相机坐标系的点云
+        'colors_precomp': params['rgb_colors'], 第一帧的颜色
+        'rotations': F.normalize(params['unnorm_rotations']),
+        'opacities': torch.sigmoid(params['logit_opacities']),
+        'scales': torch.exp(torch.tile(params['log_scales'], (1, 3))),
+        'means2D': torch.zeros_like(params['means3D'], requires_grad=True, device="cuda") + 0
+    }
+
+        depth_sil_rendervar = {
+        'means3D': transformed_pts,
+        'colors_precomp': get_depth_and_silhouette(transformed_pts, w2c),以第一帧为原点的遍历帧坐标下的？深度，1,深度的平方
+        'rotations': F.normalize(params['unnorm_rotations']),
+        'opacities': torch.sigmoid(params['logit_opacities']),
+        'scales': torch.exp(torch.tile(params['log_scales'], (1, 3))),
+        'means2D': torch.zeros_like(params['means3D'], requires_grad=True, device="cuda") + 0
+    }
+
+        return rasterize_gaussians(
+            means3D, 第一帧点云在第二帧相机坐标系的点云
+            means2D,0
+            shs,empty
+            colors_precomp,点云颜色
+            opacities,0.5
+            scales, 0.002
+            rotations,1 0 0 0
+            cov3D_precomp,empty
+            raster_settings, 相机配置
+        )
+
+    cam = Camera(
+        image_height=h,
+        image_width=w,
+        tanfovx=w / (2 * fx),
+        tanfovy=h / (2 * fy),
+        bg=torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda"),
+        scale_modifier=1.0,
+        viewmatrix=w2c,
+        projmatrix=full_proj,#世界坐标投影到屏幕坐标
+        sh_degree=0,
+        campos=cam_center,  相机中心位置
+        prefiltered=False
+    )
+
+        args = (
+            raster_settings.bg, 0 0 0背景
+            means3D, 第一帧点云在第二帧相机坐标系的点云
+            colors_precomp, 对应点云颜色
+            opacities,0.5
+            scales,0.02
+            rotations,1 0 0 0
+            raster_settings.scale_modifier,1.0
+            cov3Ds_precomp,empty
+            raster_settings.viewmatrix,Tc->w
+            raster_settings.projmatrix,#世界坐标投影到屏幕坐标
+            raster_settings.tanfovx,w / (2 * fx),
+            raster_settings.tanfovy,h / (2 * fy),
+            raster_settings.image_height,
+            raster_settings.image_width,
+            sh,empty
+            raster_settings.sh_degree,0
+            raster_settings.campos,相机中心位置,世界坐标
+            raster_settings.prefiltered,false
+        )
+
+variables['means2D'] = rendervar['means2D']
+
+高斯光栅化差分：计算每个颜色的贡献加权计算新图像，建柔和的边缘和平滑的渐变，半径是指这个点的影响范围
+
+# 如果在Tracking环节，计算深度损失 (losses['depth']) 为当前深度图与渲染深度图之间差值的绝对值之和（只考虑掩码内的区域）
+losses['depth'] = torch.abs(curr_data['depth'] - depth)[mask].sum()
+# 计算RGB损失 (losses['im']) 为当前图像与渲染图像之间差值的绝对值之和
+
+    variables['max_2D_radius'][seen] = torch.max(radius[seen], variables['max_2D_radius'][seen])
+    variables['seen'] = seen
+    weighted_losses['loss'] = loss
+
+
+所有步骤就一个目的，预测位资
+
+
+位姿优化过了，重新渲染
+更新params，并添加到优化器
+
+
+录一段视频或者拍一组不同角度的照片，用一些技术（例如SfM）估计点云。或者直接随机初始化一组点云。
+点云中的每一个点，代表着一个三维的高斯分布，所以除了点的位置（均值）以外，还有协方差，以及不透明度，以及颜色（球谐系数）。直观可以理解为一个”椭球体“。
+将这些椭球体沿着特定的角度投影到对应位姿所在的投影平面上，这一步也叫“splatting“，一个椭球体投影到平面上会得到一个椭圆（代码实现时其实是以长轴为直径的圆），然后通过计算待求解像素和椭圆中心的距离，我们可以得到不透明度（离的越近，说明越不透明）。每个椭球体又各自代表自己的颜色，这是距离无关的。于是就可以进行alpha compositing，来合成颜色。然后快速的对所有像素做这样的计算，这被称作”快速可微光栅化“。
+于是可以得到整个图片，再和ground truth比较，得到损失，然后梯度反传，随机梯度下降，进行优化。
+
+
+nerf : 

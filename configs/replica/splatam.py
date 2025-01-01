@@ -1,7 +1,7 @@
 import os
 from os.path import join as p_join
 
-scenes = ["room0", "room1", "room2",
+scenes = ["room0_test3","room0", "room1", "room2",
           "office0", "office1", "office2",
           "office_", "office4"]
 
@@ -35,11 +35,11 @@ config = dict(
     checkpoint_time_idx=0,
     save_checkpoints=False, # Save Checkpoints
     checkpoint_interval=100, # Checkpoint Interval
-    use_wandb=True,
+    use_wandb=False,
     wandb=dict(
         # entity="theairlab",
-        entity="shuttworth",
-        project="SplaTAM",
+        entity="ergevv",
+        project="splatam",
         group=group_name,
         name=run_name,
         save_qual=False,

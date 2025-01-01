@@ -1,0 +1,15 @@
+wandb sync /home/erge/桌面/开源工程/SplaTam_Easyread/wandb/offline-run-20241206_002658-z6wj5rdi
+
+
+python viz_scripts/final_recon.py configs/iphone/splatam.py
+
+
+双目视觉代替深度
+
+
+python scripts/splatam.py configs/replica/splatam.py
+
+python setup.py develop
+
+pip uninstall diff-gaussian-rasterization
+

@@ -71,7 +71,7 @@ def keyframe_selection_overlap(gt_depth, w2c, intrinsics, keyframe_list, k, pixe
         # B. 反投影选定的像素到3D点云
         # 利用 get_pointcloud 函数，将选定的像素索引反投影到3D点云空间, 得到的 pts 包含了在3D相机坐标系中的稀疏采样点的坐标
         # 注意：此utils/keyframe_selection.py里的get_pointcloud()函数，非彼scripts/splatam.py里的get_pointcloud()函数，函数同名 性质类似，但传参不同 实现有区别
-        pts = get_pointcloud(gt_depth, intrinsics, w2c, sampled_indices)
+        pts = get_pointcloud(gt_depth, intrinsics, w2c, sampled_indices)  
 
         list_keyframe = []
         # C. 遍历并进行关键帧重叠度分析
