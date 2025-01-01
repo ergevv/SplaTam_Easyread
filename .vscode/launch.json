@@ -5,6 +5,33 @@
     "version": "0.2.0",
     "configurations": [
 
+
+        {
+            "name": "Python 调试程序: 当前文件",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "configs/replica/splatam.py"
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+            
+        },
+        {
+            "name": "(cuda) launch",
+            "type": "cuda-gdb",
+            "request": "launch",
+            "program": "/home/erge/python/venv/splatam/bin/python3.10",
+            "args": "${workspaceFolder}/scripts/splatam.py",
+            "initCommands": ["cd ${workspaceFolder}",
+                            "add-symbol-file diff-gaussian-rasterization-w-depth/build/lib.linux-x86_64-cpython-310/diff_gaussian_rasterization/_C.cpython-310-x86_64-linux-gnu.so"],
+            "stopAtEntry": true
+        },
+
         {
             "name": "CUDA C++: Attach",
             "type": "cuda-gdb",
@@ -37,31 +64,6 @@
                     "ignoreFailures": true
                 }
             ]
-        },
-        {
-            "name": "Python 调试程序: 当前文件",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                // "configs/replica/splatam.py"
-            ],
-            "env": {
-                "CUDA_VISIBLE_DEVICES": "0"
-            }
-            
-        },
-        {
-            "name": "(cuda) launch",
-            "type": "cuda-gdb",
-            "request": "launch",
-            "program": "/home/erge/python/venv/splatam/bin/python3.10",
-            "args": "${workspaceFolder}/scripts/splatam.py",
-            "initCommands": ["cd ${workspaceFolder}",
-                            "add-symbol-file diff-gaussian-rasterization-w-depth/build/lib.linux-x86_64-cpython-310/diff_gaussian_rasterization/_C.cpython-310-x86_64-linux-gnu.so"],
-            "stopAtEntry": true
         },
     ]
 }

@@ -1,13 +1,13 @@
 import os
 from os.path import join as p_join
 
-scenes = ["room0_test3","room0", "room1", "room2",
+scenes = ["room0_test3","room0_test","room0", "room1", "room2",
           "office0", "office1", "office2",
           "office_", "office4"]
 
 primary_device="cuda:0"
 seed = 0
-scene_name = scenes[0]
+scene_name = scenes[1]
 
 map_every = 1
 keyframe_every = 5
