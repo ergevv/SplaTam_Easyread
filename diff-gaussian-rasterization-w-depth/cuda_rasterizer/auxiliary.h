@@ -67,7 +67,7 @@ __forceinline__ __device__ float3 transformPoint4x3(const float3& p, const float
 
 __forceinline__ __device__ float4 transformPoint4x4(const float3& p, const float* matrix)
 {
-	float4 transformed = {
+	float4 transformed = {  //torch是行优先，因此这里可以看出是右乘的，即P×T
 		matrix[0] * p.x + matrix[4] * p.y + matrix[8] * p.z + matrix[12],
 		matrix[1] * p.x + matrix[5] * p.y + matrix[9] * p.z + matrix[13],
 		matrix[2] * p.x + matrix[6] * p.y + matrix[10] * p.z + matrix[14],
@@ -146,10 +146,10 @@ __forceinline__ __device__ bool in_frustum(int idx,
 	float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
 
 	// Bring points to screen space
-	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
+	float4 p_hom = transformPoint4x4(p_orig, projmatrix);  //投影到屏幕坐标系
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
-	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
-	p_view = transformPoint4x3(p_orig, viewmatrix);
+	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w }; //轴取1
+	p_view = transformPoint4x3(p_orig, viewmatrix); //相机坐标系
 
 	if (p_view.z <= 0.2f)// || ((p_proj.x < -1.3 || p_proj.x > 1.3 || p_proj.y < -1.3 || p_proj.y > 1.3)))
 	{

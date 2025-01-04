@@ -85,7 +85,7 @@ __global__ void duplicateWithKeys(
 	if (radii[idx] > 0)
 	{
 		// Find this Gaussian's offset in buffer for writing keys/values.
-		uint32_t off = (idx == 0) ? 0 : offsets[idx - 1];
+		uint32_t off = (idx == 0) ? 0 : offsets[idx - 1]; //记录了瓦片位置
 		uint2 rect_min, rect_max;
 
 		getRect(points_xy[idx], radii[idx], rect_min, rect_max, grid);
@@ -101,7 +101,7 @@ __global__ void duplicateWithKeys(
 			{
 				uint64_t key = y * grid.x + x;
 				key <<= 32;
-				key |= *((uint32_t*)&depths[idx]);
+				key |= *((uint32_t*)&depths[idx]); //将深度值（转换为 uint32_t 类型）合并到键中
 				gaussian_keys_unsorted[off] = key;
 				gaussian_values_unsorted[off] = idx;
 				off++;
@@ -225,7 +225,8 @@ int CudaRasterizer::Rasterizer::forward(
 	const float focal_y = height / (2.0f * tan_fovy);
 	const float focal_x = width / (2.0f * tan_fovx);
 
-	size_t chunk_size = required<GeometryState>(P);
+	size_t chunk_size = required<GeometryState>(P);  //把数据连续拼到一个连续的内存块里
+	chunk_size += required<BinningState>(P);
 	char* chunkptr = geometryBuffer(chunk_size);
 	GeometryState geomState = GeometryState::fromChunk(chunkptr, P);
 
@@ -271,17 +272,17 @@ int CudaRasterizer::Rasterizer::forward(
 		geomState.rgb,
 		geomState.conic_opacity,
 		tile_grid,
-		geomState.tiles_touched,
+		geomState.tiles_touched,  //每个高斯的touched tile数量
 		prefiltered
 	);
 
 	// Compute prefix sum over full list of touched tile counts by Gaussians
 	// E.g., [2, 3, 0, 2, 1] -> [2, 5, 5, 7, 8]
 	cub::DeviceScan::InclusiveSum(geomState.scanning_space, geomState.scan_size,
-		geomState.tiles_touched, geomState.point_offsets, P);
+		geomState.tiles_touched, geomState.point_offsets, P);//计算累计和，用来判断数据写入的位置，前两个参数是临时空间，第三个参数是输入，第四个参数是输出，保存前缀和的结果，即每个高斯分布触及的瓦片的累积偏移量。这些偏移量可以用于后续处理，例如确定每个高斯分布应该处理的数据范围或构建索引结构。，第五个参数是输入长度，高斯渲染的点数量
 
 	// Retrieve total number of Gaussian instances to launch and resize aux buffers
-	int num_rendered;
+	int num_rendered; //占据瓦片的总数
 	cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost);
 
 	int binning_chunk_size = required<BinningState>(num_rendered);
@@ -301,7 +302,7 @@ int CudaRasterizer::Rasterizer::forward(
 		tile_grid
 		);
 
-	int bit = getHigherMsb(tile_grid.x * tile_grid.y);
+	int bit = getHigherMsb(tile_grid.x * tile_grid.y);//获取最高有效位（MSB）：最高有效位是指一个整数中最左边的非零位
 
 	// Sort complete list of (duplicated) Gaussian indices by keys
 	cub::DeviceRadixSort::SortPairs(
@@ -309,34 +310,34 @@ int CudaRasterizer::Rasterizer::forward(
 		binningState.sorting_size,
 		binningState.point_list_keys_unsorted, binningState.point_list_keys,
 		binningState.point_list_unsorted, binningState.point_list,
-		num_rendered, 0, 32 + bit);
+		num_rendered, 0, 32 + bit); //32 + bit结束的位数，要是直接使用point_list_keys_unsorted的大小，就有64+32位了，键类型的所有位。对键排序，输出到point_list_keys，point_list
 
-	cudaMemset(imgState.ranges, 0, tile_grid.x * tile_grid.y * sizeof(uint2));
+	cudaMemset(imgState.ranges, 0, tile_grid.x * tile_grid.y * sizeof(uint2)); //imgState.ranges置0
 
 	// Identify start and end of per-tile workloads in sorted list
 	if (num_rendered > 0)
 		identifyTileRanges << <(num_rendered + 255) / 256, 256 >> > (
 			num_rendered,
-			binningState.point_list_keys,
-			imgState.ranges
+			binningState.point_list_keys, //排序后的key，因此i同一个瓦片是连在一起的
+			imgState.ranges //记录渲染的点开始和结束时候的瓦片索引
 			);
 
 	// Let each tile blend its range of Gaussians independently in parallel
 	const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
 	FORWARD::render(
 		tile_grid, block,
-		imgState.ranges,
-		binningState.point_list,
+		imgState.ranges, //相邻的两个不同的tile索引
+		binningState.point_list, //点的索引
 		width, height,
-		geomState.means2D,
-		feature_ptr,
-		geomState.conic_opacity,
-		imgState.accum_alpha,
-		imgState.n_contrib,
-		background,
-		out_color,
-		geomState.depths,
-		out_depth);
+		geomState.means2D, //屏幕空间2D坐标
+		feature_ptr, //对应颜色
+		geomState.conic_opacity, //协方差和不透明度
+		imgState.accum_alpha, //未处理
+		imgState.n_contrib,//未处理
+		background, //黑色
+		out_color,//输出颜色
+		geomState.depths, //屏幕空间深度
+		out_depth);//输出深度
 
 	return num_rendered;
 }

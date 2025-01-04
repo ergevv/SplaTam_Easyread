@@ -439,7 +439,7 @@ renderCUDA(
 	// In the forward, we stored the final value for T, the
 	// product of all (1 - alpha) factors. 
 	const float T_final = inside ? final_Ts[pix_id] : 0;
-	float T = T_final;
+	float T = T_final;  //读取透明度
 
 	// We start from the back. The ID of the last contributing
 	// Gaussian is known from each pixel from the forward.

@@ -79,14 +79,21 @@ class _RasterizeGaussians(torch.autograd.Function):
         num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer, depth = _C.rasterize_gaussians(*args)
 
         # Keep relevant tensors for backward
+# 保存非张量信息：
+# ctx.raster_settings = raster_settings：将 raster_settings（可能是一个包含渲染设置的字典或其他结构化数据）直接赋值给 ctx。这种方式适用于保存那些不需要梯度计算的非张量信息。
+# ctx.num_rendered = num_rendered：同样地，保存了 num_rendered，这可能是表示渲染了多少个对象的整数或其他类型的元数据。
+# 保存张量信息：
+# ctx.save_for_backward(...)：这是保存张量信息的关键方法。所有作为参数传递给 save_for_backward 的张量都将被保存下来，并可以在 backward 方法中访问。这些张量通常包括输入张量、中间计算结果等，它们对于正确计算梯度至关重要。
         ctx.raster_settings = raster_settings
         ctx.num_rendered = num_rendered
         ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, geomBuffer, binningBuffer, imgBuffer)
         return color, radii, depth
 
     @staticmethod
-    def backward(ctx, grad_out_color, _, depth):
-
+    def backward(ctx, grad_out_color, _, depth):  #为什么断点不生效
+        # print("Backward,断点不生效")
+        # import pdb
+        # pdb.set_trace()
         # Restore necessary values from context
         num_rendered = ctx.num_rendered
         raster_settings = ctx.raster_settings
@@ -147,7 +154,7 @@ class GaussianRasterizationSettings(NamedTuple):
 class GaussianRasterizer(nn.Module):
     def __init__(self, raster_settings):
         super().__init__()
-        self.raster_settings = raster_settings
+        self.raster_settings = raster_settings #相机配置
 
     def markVisible(self, positions):
         # Mark visible points (based on frustum culling for camera) with a boolean 
@@ -160,7 +167,7 @@ class GaussianRasterizer(nn.Module):
             
         return visible
 
-    def forward(self, means3D, means2D, opacities, shs = None, colors_precomp = None, scales = None, rotations = None, cov3D_precomp = None):
+    def forward(self, means3D, means2D, opacities, shs = None, colors_precomp = None, scales = None, rotations = None, cov3D_precomp = None): #通过call函数调用该方法
         
         raster_settings = self.raster_settings
 

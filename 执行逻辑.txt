@@ -1,0 +1,160 @@
+1、读取数据
+2、数据获取:从数据集中获取第一帧RGB-D数据（颜色、深度）、相机内参和相机位姿
+3、获取相机内参，计算从相机坐标到裁剪空间坐标（锥转立方体）与世界坐标投影到裁剪空间坐标的变换（点在左边？）
+4、计算第一帧像素点位置，通过内参计算点在相机坐标系下的位置
+5、缩放尺度？未知：            scale_gaussian = depth_z / ((FX + FY)/2)
+mean3_sq_dist = scale_gaussian**2
+6、获得点云的坐标和颜色和mean3_sq_dist
+7、定义需要优化的参数
+    # 3D Gaussian待优化的参数
+    params = {
+        'means3D': means3D,
+        'rgb_colors': init_pt_cld[:, 3:6],
+        'unnorm_rotations': unnorm_rots,协方差的四元数
+        'logit_opacities': logit_opacities,不透明度
+        'log_scales': torch.tile(torch.log(torch.sqrt(mean3_sq_dist))[..., None], (1, 1)),缩放尺度
+    }
+8、位资预测参数：
+params['cam_unnorm_rots'] = cam_rots
+params['cam_trans'] = np.zeros((1, 3, num_frames))
+9、未知：
+variables = {'max_2D_radius': torch.zeros(params['means3D'].shape[0]).cuda().float(),
+'means2D_gradient_accum': torch.zeros(params['means3D'].shape[0]).cuda().float(),
+'denom': torch.zeros(params['means3D'].shape[0]).cuda().float(),
+'timestep': torch.zeros(params['means3D'].shape[0]).cuda().float()}
+variables['scene_radius'] = torch.max(depth)/3
+10、开始遍历每一帧处理
+11、读取数据（颜色、深度）和相机位姿
+12、初始化当前帧的数据 curr_data 包括相机参数、颜色数据、深度数据等
+13、tracking迭代60次
+14、索引为0时，直接进行关键帧步骤
+15、选定的关键帧列表：
+（1）从当前帧的有效深度像素中（深度大于零的像素）随机选择一定数量（pixels=1600）的像素索引sampled_indices
+（2）计算世界坐标下的点坐标：pts，并去除原点附近[0,0,0]的点
+(3)关键帧为空，不操作
+（4）添加当前帧到关键帧
+16、创建优化器：参数，当前值，学习率
+17、计算损失：
+（1）建图时，相机位资因子使用detach来剔除计算图，
+（2）means3D需要优化，直接读取，并转为相机坐标下的点
+（3）创建渲染需要优化的参数
+rendervar = {
+    'means3D': transformed_pts,相机坐标系下的点
+    'colors_precomp': params['rgb_colors'],
+    'rotations': F.normalize(params['unnorm_rotations']),
+    'opacities': torch.sigmoid(params['logit_opacities']),
+    'scales': torch.exp(torch.tile(params['log_scales'], (1, 3))),
+    'means2D': torch.zeros_like(params['means3D'], requires_grad=True, device="cuda") + 0
+}
+rendervar = {
+    'means3D': transformed_pts,
+    'colors_precomp': get_depth_and_silhouette(transformed_pts, w2c),
+    'rotations': F.normalize(params['unnorm_rotations']),
+    'opacities': torch.sigmoid(params['logit_opacities']),
+    'scales': torch.exp(torch.tile(params['log_scales'], (1, 3))),
+    'means2D': torch.zeros_like(params['means3D'], requires_grad=True, device="cuda") + 0
+}
+这里颜色图colors_precomp存在差异，一个是真实颜色，一个是深度图和轮廓图（相机坐标系下的深度,1,深度的平方）
+18、图像渲染
+（1）传入参数：
+args = (
+            raster_settings.bg, 0 0 0背景
+            means3D, 世界点
+            colors_precomp, 对应点云颜色
+            opacities,0.5
+            scales,0.02，协方差
+            rotations,1 0 0 0，协方差
+            raster_settings.scale_modifier,1.0，手动控制高斯分布的尺度，协方差的权重系数
+            cov3Ds_precomp,empty
+            raster_settings.viewmatrix,Tc->w,与第一个相机对齐
+            raster_settings.projmatrix,#第一个相机的坐标投影到屏幕坐标
+            raster_settings.tanfovx,w / (2 * fx),
+            raster_settings.tanfovy,h / (2 * fy),
+            raster_settings.image_height,
+            raster_settings.image_width,
+            sh,empty
+            raster_settings.sh_degree,0
+            raster_settings.campos,相机中心位置,世界坐标
+            raster_settings.prefiltered,false
+        )
+(2)定义需要输入的变量(rendered, out_color, radii, geomBuffer, binningBuffer, imgBuffer, out_depth);
+（3）将图像每16×16为一个块，tile_grid记录了图像xyz轴各有多少个块，block记录了一个块的大小
+（4）获取相机坐标系下点，且得大于0.2：
+获取对应的世界点坐标，转到屏幕坐标系，再反透射转到相机坐标系，判断其深度是否大于0.2，小于则不处理了
+（5）计算裁剪空间坐标
+（6）计算3D协方差：Σ = 𝑅𝑆𝑆 𝑇 𝑅 𝑇
+（7）将点仿射到裁剪空间，并计算屏幕空间的2D协方差
+（8）根据特征值来计算高斯分布的影响半径
+（9）计算像素坐标，根据影响半径计算影响的瓦片
+（10）tiles_touched瓦片数量，	depths[idx] = p_view.z;
+radii[idx] = my_radius;
+points_xy_image[idx] = point_image;
+// Inverse 2D covariance and opacity neatly pack into one float4
+conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] };
+tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
+（11）沿着x轴数的索引为key，point_list_keys_unsorted前64位为key，后32位为深度，point_list_unsorted为对应点的索引
+(12)imgState.ranges的x记录了所有点排序后在同一个tile的开始，y记录了结束
+（13）计算一个tile里面的点
+（14）获取渲染后的图像和对应的高斯分布半径
+19、variables['means2D'] = rendervar['means2D']
+20、渲染深度图、1、深度平方图
+21、计算深度的不确定性，即深度平方的差值；轮廓图，小值则是被遮掩了
+22、掩膜：深度大于0、值不是nan，轮廓大于0
+23、计算损失值：
+（1）深度：渲染的深度图和GT深度图之间的差值的平均值
+（2）颜色：0.8×渲染的颜色图和GT颜色图之间的差值的平均值+0.2×（1-SSIM），SSIM值越大表示两张图片越相似，这里是评估损失值（差异），所以需要1-SSIM。
+（3）计算损失总和loss，记录每项损失weighted_losses，
+seen = radius > 0 
+variables['max_2D_radius'][seen] = torch.max(radius[seen], variables['max_2D_radius'][seen])，只保留半径大于0的
+variables['seen'] = seen
+24、使用掩膜去除不再优化的变量
+25、添加关键帧
+curr_keyframe = {'id': time_idx, 'est_w2c': curr_w2c, 'color': color, 'depth': depth}
+# Add to keyframe list
+keyframe_list.append(curr_keyframe)
+keyframe_time_indices.append(time_idx)
+
+注：w2c变量永远是第一帧相机的
+
+第二轮：
+1、帧差法预测当前帧位姿
+2、定义tracking优化器
+3、计算损失值，优化位资，不优化mean3D，满足迭代次数和损失值足够小，则为预测值
+4、更新params, variables
+(1)获取第一帧的相机坐标的点，不参与优化
+(2)获取轮廓图
+(3)生成掩膜
+(4)获取新的一帧的世界点
+(5)更新params,使用当前帧覆盖前一帧，即是params只包含当前帧数据?那如何全局建图
+(6)        
+num_pts = params['means3D'].shape[0]
+variables['means2D_gradient_accum'] = torch.zeros(num_pts, device="cuda").float()
+variables['denom'] = torch.zeros(num_pts, device="cuda").float()
+variables['max_2D_radius'] = torch.zeros(num_pts, device="cuda").float()
+new_timestep = time_idx*torch.ones(new_pt_cld.shape[0],device="cuda").float()
+variables['timestep'] = torch.cat((variables['timestep'],new_timestep),dim=0)
+5、选取关键帧：
+(1)随机采取当前帧1600个点，并且去除原点附近的点,得到世界点
+(2)将点转到其他关键帧下的相机坐标
+(3)相机坐标转到像素坐标，归一化平面
+(4)计算在其他关键帧下的图像范围内的点占总投影点的比例(重叠百分比) 
+(5)按百分比排序，并去除百分比不大于0的
+(6)随机提取k个关键帧，排序和随机抽取的组合使用是一种常见的策略，用于在保证数据质量的前提下引入适当的随机性。
+(7)添加最后一帧和当前帧到关键帧列表
+(8)每一次优化建图，都在关键帧列表随机选取一帧
+6、
+
+
+计算梯度：
+1、计算要处理的像素位置
+
+
+
+
+存疑：imgState.n_contrib
+
+
+viewmatrix=w2c,世界转到相机第一帧坐标
+projmatrix=full_proj,世界转到相机第一帧坐标，再转到裁剪空间
+
+mean3_3D,世界坐标

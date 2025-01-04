@@ -6,7 +6,7 @@ python viz_scripts/final_recon.py configs/iphone/splatam.py
 
 双目视觉代替深度
 
-
+python -m pdb scripts/splatam.py
 python scripts/splatam.py configs/replica/splatam.py
 
 python setup.py develop
@@ -15,3 +15,9 @@ pip uninstall diff-gaussian-rasterization
 
 git submodule deinit -f diff-gaussian-rasterization-w-depth
 git add diff-gaussian-rasterization-w-depth
+
+        import pydevd
+        pydevd.settrace(suspend=False, trace_only_current_thread=True)
+
+sudo rmmod nvidia_uvm
+sudo modprobe nvidia_uvm

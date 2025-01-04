@@ -45,4 +45,3 @@ Used as the rasterization engine for the paper "3D Gaussian Splatting for Real-T
 }</code></pre>
   </div>
 </section>
-

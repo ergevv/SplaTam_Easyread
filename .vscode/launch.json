@@ -5,7 +5,6 @@
     "version": "0.2.0",
     "configurations": [
 
-
         {
             "name": "Python 调试程序: 当前文件",
             "type": "debugpy",
@@ -22,7 +21,7 @@
             
         },
         {
-            "name": "(cuda) launch",
+            "name": "直接调试cuda",
             "type": "cuda-gdb",
             "request": "launch",
             "program": "/home/erge/python/venv/splatam/bin/python3.10",
@@ -33,7 +32,7 @@
         },
 
         {
-            "name": "CUDA C++: Attach",
+            "name": "手动输入进程id",
             "type": "cuda-gdb",
             "request": "attach",
             "program": "/home/erge/python/venv/splatam/bin/python3.10",
@@ -42,7 +41,7 @@
         },
 
         {
-            "name": "CUDA C++: Attach2",
+            "name": "手动选择进程id",
             "type": "cuda-gdb",
             "request": "attach",
             "program": "/home/erge/python/venv/splatam/bin/python3.10",
@@ -50,7 +49,7 @@
         },
 
         {
-            "name": "gdb Attach",
+            "name": "c++ 调试",
             "type": "cppdbg",
             "request": "attach",
             "program": "/home/erge/python/venv/splatam/bin/python3.10",
