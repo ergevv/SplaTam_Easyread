@@ -542,17 +542,6 @@ def rgbd_slam(config: dict):
     eval_dir = os.path.join(output_dir, "eval")
     os.makedirs(eval_dir, exist_ok=True)
     
-    # Init WandB 
-    # 满足config条件的时候，会初始化WandB
-    if config['use_wandb']:
-        wandb_time_step = 0
-        wandb_tracking_step = 0
-        wandb_mapping_step = 0
-        wandb_run = wandb.init(project=config['wandb']['project'],
-                               entity=config['wandb']['entity'],
-                               group=config['wandb']['group'],
-                               name=config['wandb']['name'],
-                               config=config)
 
     # 加载设备和数据集（相关代码较长，中间涉及到几个环节的Init seperate dataloader）
     # Get Device
@@ -560,7 +549,7 @@ def rgbd_slam(config: dict):
 
     # Load Dataset
     print("Loading Dataset ...")
-    dataset_config = config["data"]
+    dataset_config = config["data"] #
     if "gradslam_data_cfg" not in dataset_config:
         gradslam_data_cfg = {}
         gradslam_data_cfg["dataset_name"] = dataset_config["dataset_name"]
@@ -609,59 +598,13 @@ def rgbd_slam(config: dict):
     if num_frames == -1:
         num_frames = len(dataset)
 
-    # Init seperate dataloader for densification if required
-    if seperate_densification_res:
-        densify_dataset = get_dataset(
-            config_dict=gradslam_data_cfg,
-            basedir=dataset_config["basedir"],
-            sequence=os.path.basename(dataset_config["sequence"]),
-            start=dataset_config["start"],
-            end=dataset_config["end"],
-            stride=dataset_config["stride"],
-            desired_height=dataset_config["densification_image_height"],
-            desired_width=dataset_config["densification_image_width"],
-            device=device,
-            relative_pose=True,
-            ignore_bad=dataset_config["ignore_bad"],
-            use_train_split=dataset_config["use_train_split"],
-        )
-        # Initialize Parameters, Canonical & Densification Camera parameters
-        params, variables, intrinsics, first_frame_w2c, cam, \
-            densify_intrinsics, densify_cam = initialize_first_timestep(dataset, num_frames,
-                                                                        config['scene_radius_depth_ratio'],
-                                                                        config['mean_sq_dist_method'],
-                                                                        densify_dataset=densify_dataset) 
-        # initialize_first_timestep()函数对第一帧做Map Initialization的地方；
-        # 上方和下方都使用到了initialize_first_timestep()，在传参处有区别；
-        # 满足if判断，则densify_dataset作为要密集化的数据集传入；
-        # 否则else，densify_dataset默认置为None                                                                                                                 
-    else:
-        # Initialize Parameters & Canoncial Camera parameters
-        params, variables, intrinsics, first_frame_w2c, cam = initialize_first_timestep(dataset, num_frames, 
-                                                                                        config['scene_radius_depth_ratio'],
-                                                                                        config['mean_sq_dist_method'])
-    
-    # Init seperate dataloader for tracking if required
-    if seperate_tracking_res:
-        tracking_dataset = get_dataset(
-            config_dict=gradslam_data_cfg,
-            basedir=dataset_config["basedir"],
-            sequence=os.path.basename(dataset_config["sequence"]),
-            start=dataset_config["start"],
-            end=dataset_config["end"],
-            stride=dataset_config["stride"],
-            desired_height=dataset_config["tracking_image_height"],
-            desired_width=dataset_config["tracking_image_width"],
-            device=device,
-            relative_pose=True,
-            ignore_bad=dataset_config["ignore_bad"],
-            use_train_split=dataset_config["use_train_split"],
-        )
-        tracking_color, _, tracking_intrinsics, _ = tracking_dataset[0]
-        tracking_color = tracking_color.permute(2, 0, 1) / 255 # (H, W, C) -> (C, H, W)
-        tracking_intrinsics = tracking_intrinsics[:3, :3]
-        tracking_cam = setup_camera(tracking_color.shape[2], tracking_color.shape[1], 
-                                    tracking_intrinsics.cpu().numpy(), first_frame_w2c.detach().cpu().numpy())
+
+    # Initialize Parameters & Canoncial Camera parameters
+    params, variables, intrinsics, first_frame_w2c, cam = initialize_first_timestep(dataset, num_frames, 
+                                                                                    config['scene_radius_depth_ratio'],
+                                                                                    config['mean_sq_dist_method'])
+
+
     
     # Initialize list to keep track of Keyframes
     keyframe_list = []
@@ -678,43 +621,8 @@ def rgbd_slam(config: dict):
     mapping_frame_time_sum = 0
     mapping_frame_time_count = 0
 
-    # Load Checkpoint
-    if config['load_checkpoint']:
-        checkpoint_time_idx = config['checkpoint_time_idx']
-        print(f"Loading Checkpoint for Frame {checkpoint_time_idx}")
-        ckpt_path = os.path.join(config['workdir'], config['run_name'], f"params{checkpoint_time_idx}.npz")
-        params = dict(np.load(ckpt_path, allow_pickle=True))
-        params = {k: torch.tensor(params[k]).cuda().float().requires_grad_(True) for k in params.keys()}
-        variables['max_2D_radius'] = torch.zeros(params['means3D'].shape[0]).cuda().float()
-        variables['means2D_gradient_accum'] = torch.zeros(params['means3D'].shape[0]).cuda().float()
-        variables['denom'] = torch.zeros(params['means3D'].shape[0]).cuda().float()
-        variables['timestep'] = torch.zeros(params['means3D'].shape[0]).cuda().float()
-        # Load the keyframe time idx list
-        keyframe_time_indices = np.load(os.path.join(config['workdir'], config['run_name'], f"keyframe_time_indices{checkpoint_time_idx}.npy"))
-        keyframe_time_indices = keyframe_time_indices.tolist()
-        # Update the ground truth poses list
-        for time_idx in range(checkpoint_time_idx):
-            # Load RGBD frames incrementally instead of all frames
-            color, depth, _, gt_pose = dataset[time_idx]
-            # Process poses
-            gt_w2c = torch.linalg.inv(gt_pose)
-            gt_w2c_all_frames.append(gt_w2c)
-            # Initialize Keyframe List
-            if time_idx in keyframe_time_indices:
-                # Get the estimated rotation & translation
-                curr_cam_rot = F.normalize(params['cam_unnorm_rots'][..., time_idx].detach())
-                curr_cam_tran = params['cam_trans'][..., time_idx].detach()
-                curr_w2c = torch.eye(4).cuda().float()
-                curr_w2c[:3, :3] = build_rotation(curr_cam_rot)
-                curr_w2c[:3, 3] = curr_cam_tran
-                # Initialize Keyframe Info
-                color = color.permute(2, 0, 1) / 255
-                depth = depth.permute(2, 0, 1)
-                curr_keyframe = {'id': time_idx, 'est_w2c': curr_w2c, 'color': color, 'depth': depth}
-                # Add to keyframe list
-                keyframe_list.append(curr_keyframe)
-    else:
-        checkpoint_time_idx = 0
+ 
+    checkpoint_time_idx = 0
     
     # ******************* 重点：迭代处理RGB-D帧，进行跟踪（Tracking）和建图（Mapping）*******************
     # Iterate over Scan
@@ -739,15 +647,8 @@ def rgbd_slam(config: dict):
                      'w2c': first_frame_w2c, 'iter_gt_w2c_list': curr_gt_w2c}
         
         # Initialize Data for Tracking
-        # 根据配置，初始化跟踪数据 tracking_curr_data
-        if seperate_tracking_res:
-            tracking_color, tracking_depth, _, _ = tracking_dataset[time_idx]
-            tracking_color = tracking_color.permute(2, 0, 1) / 255
-            tracking_depth = tracking_depth.permute(2, 0, 1)
-            tracking_curr_data = {'cam': tracking_cam, 'im': tracking_color, 'depth': tracking_depth, 'id': iter_time_idx,
-                                  'intrinsics': tracking_intrinsics, 'w2c': first_frame_w2c, 'iter_gt_w2c_list': curr_gt_w2c}
-        else:
-            tracking_curr_data = curr_data
+
+        tracking_curr_data = curr_data
 
         # Optimization Iterations
         # 设置建图迭代次数
@@ -757,7 +658,7 @@ def rgbd_slam(config: dict):
         # ** Sec 1.1 Camera Pose Initialization **
         # Initialize the camera pose for the current frame
         # 如果当前帧索引大于 0，则初始化相机姿态参数
-        if time_idx > 0:
+        if time_idx > 0: ##预测位姿
             params = initialize_camera_pose(params, time_idx, forward_prop=config['tracking']['forward_prop']) # 在configs/replica/splatam.py中，forward_prop是True
 
         # Tracking
@@ -793,9 +694,7 @@ def rgbd_slam(config: dict):
                                                    config['tracking']['use_l1'], config['tracking']['ignore_outlier_depth_loss'], tracking=True, 
                                                    plot_dir=eval_dir, visualize_tracking_loss=config['tracking']['visualize_tracking_loss'],
                                                    tracking_iteration=iter)
-                if config['use_wandb']:
-                    # Report Loss
-                    wandb_tracking_step = report_loss(losses, wandb_run, wandb_tracking_step, tracking=True)
+
                 
                 # Backprop 将loss进行反向传播,计算梯度
                 loss.backward()
@@ -816,11 +715,7 @@ def rgbd_slam(config: dict):
                     
                     # Report Progress
                     if config['report_iter_progress']:
-                        if config['use_wandb']:
-                            report_progress(params, tracking_curr_data, iter+1, progress_bar, iter_time_idx, sil_thres=config['tracking']['sil_thres'], tracking=True,
-                                            wandb_run=wandb_run, wandb_step=wandb_tracking_step, wandb_save_qual=config['wandb']['save_qual'])
-                        else:
-                            report_progress(params, tracking_curr_data, iter+1, progress_bar, iter_time_idx, sil_thres=config['tracking']['sil_thres'], tracking=True)
+                        report_progress(params, tracking_curr_data, iter+1, progress_bar, iter_time_idx, sil_thres=config['tracking']['sil_thres'], tracking=True)
                     else:
                         progress_bar.update(1)
                 
@@ -838,9 +733,7 @@ def rgbd_slam(config: dict):
                         do_continue_slam = True
                         progress_bar = tqdm(range(num_iters_tracking), desc=f"Tracking Time Step: {time_idx}")
                         num_iters_tracking = 2*num_iters_tracking #增加迭代次数
-                        if config['use_wandb']:
-                            wandb_run.log({"Tracking/Extra Tracking Iters Frames": time_idx,
-                                        "Tracking/step": wandb_time_step})
+
                     else:
                         break
 
@@ -876,11 +769,7 @@ def rgbd_slam(config: dict):
                 # Report Final Tracking Progress
                 progress_bar = tqdm(range(1), desc=f"Tracking Result Time Step: {time_idx}")
                 with torch.no_grad():
-                    if config['use_wandb']:
-                        report_progress(params, tracking_curr_data, 1, progress_bar, iter_time_idx, sil_thres=config['tracking']['sil_thres'], tracking=True,
-                                        wandb_run=wandb_run, wandb_step=wandb_time_step, wandb_save_qual=config['wandb']['save_qual'], global_logging=True)
-                    else:
-                        report_progress(params, tracking_curr_data, 1, progress_bar, iter_time_idx, sil_thres=config['tracking']['sil_thres'], tracking=True)
+                    report_progress(params, tracking_curr_data, 1, progress_bar, iter_time_idx, sil_thres=config['tracking']['sil_thres'], tracking=True)
                 progress_bar.close()
             except:
                 ckpt_output_dir = os.path.join(config["workdir"], config["run_name"])
@@ -896,17 +785,8 @@ def rgbd_slam(config: dict):
             # ******************* Sec. 2 Densification ******************* 
             if config['mapping']['add_new_gaussians'] and time_idx > 0:
                 # Setup Data for Densification
-                if seperate_densification_res:
-                    # 如果if判断成立，逐个加载RGB-D帧，而不是一次性加载所有帧
-                    # Load RGBD frames incrementally instead of all frames
-                    densify_color, densify_depth, _, _ = densify_dataset[time_idx]
-                    densify_color = densify_color.permute(2, 0, 1) / 255
-                    densify_depth = densify_depth.permute(2, 0, 1)
-                    densify_curr_data = {'cam': densify_cam, 'im': densify_color, 'depth': densify_depth, 'id': time_idx, 
-                                 'intrinsics': densify_intrinsics, 'w2c': first_frame_w2c, 'iter_gt_w2c_list': curr_gt_w2c}
-                else:
-                    # 否则使用当前数据 curr_data
-                    densify_curr_data = curr_data
+
+                densify_curr_data = curr_data
 
                 # Add new Gaussians to the scene based on the Silhouette
                 # 重点函数：添加新的gaussians
@@ -915,9 +795,7 @@ def rgbd_slam(config: dict):
                                                       config['mean_sq_dist_method'])
                 # 记录添加新的高斯后，post_num_pts是高斯分布数量
                 post_num_pts = params['means3D'].shape[0]
-                if config['use_wandb']:
-                    wandb_run.log({"Mapping/Number of Gaussians": post_num_pts,
-                                   "Mapping/step": wandb_time_step})
+
             
             # ******************* Sec. 3 Keyframe-based Map Update ******************* 
             # KeyFrame Selection
@@ -979,9 +857,7 @@ def rgbd_slam(config: dict):
                 loss, variables, losses = get_loss(params, iter_data, variables, iter_time_idx, config['mapping']['loss_weights'],
                                                 config['mapping']['use_sil_for_loss'], config['mapping']['sil_thres'],
                                                 config['mapping']['use_l1'], config['mapping']['ignore_outlier_depth_loss'], mapping=True)
-                if config['use_wandb']:
-                    # Report Loss
-                    wandb_mapping_step = report_loss(losses, wandb_run, wandb_mapping_step, mapping=True)
+
                 # Backprop
                 loss.backward()
                 with torch.no_grad():
@@ -989,28 +865,20 @@ def rgbd_slam(config: dict):
                     # 以configs/replica/splatam.py为例，config['mapping']['prune_gaussians']=True，执行
                     if config['mapping']['prune_gaussians']:
                         params, variables = prune_gaussians(params, variables, optimizer, iter, config['mapping']['pruning_dict'])
-                        if config['use_wandb']:
-                            wandb_run.log({"Mapping/Number of Gaussians - Pruning": params['means3D'].shape[0],
-                                           "Mapping/step": wandb_mapping_step})
+
                     # Gaussian-Splatting's Gradient-based Densification
                     # 以configs/replica/splatam.py为例，config['mapping']['use_gaussian_splatting_densification']=False，不执行
                     if config['mapping']['use_gaussian_splatting_densification']:
                         params, variables = densify(params, variables, optimizer, iter, config['mapping']['densify_dict'])
-                        if config['use_wandb']:
-                            wandb_run.log({"Mapping/Number of Gaussians - Densification": params['means3D'].shape[0],
-                                           "Mapping/step": wandb_mapping_step})
+
                     # Optimizer Update
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
                     # Report Progress
                     if config['report_iter_progress']:
-                        if config['use_wandb']:
-                            report_progress(params, iter_data, iter+1, progress_bar, iter_time_idx, sil_thres=config['mapping']['sil_thres'], 
-                                            wandb_run=wandb_run, wandb_step=wandb_mapping_step, wandb_save_qual=config['wandb']['save_qual'],
-                                            mapping=True, online_time_idx=time_idx)
-                        else:
-                            report_progress(params, iter_data, iter+1, progress_bar, iter_time_idx, sil_thres=config['mapping']['sil_thres'], 
-                                            mapping=True, online_time_idx=time_idx)
+
+                        report_progress(params, iter_data, iter+1, progress_bar, iter_time_idx, sil_thres=config['mapping']['sil_thres'], 
+                                        mapping=True, online_time_idx=time_idx)
                     else:
                         progress_bar.update(1)
                 # Update the runtime numbers
@@ -1029,13 +897,9 @@ def rgbd_slam(config: dict):
                     # Report Mapping Progress
                     progress_bar = tqdm(range(1), desc=f"Mapping Result Time Step: {time_idx}")
                     with torch.no_grad():
-                        if config['use_wandb']:
-                            report_progress(params, curr_data, 1, progress_bar, time_idx, sil_thres=config['mapping']['sil_thres'], 
-                                            wandb_run=wandb_run, wandb_step=wandb_time_step, wandb_save_qual=config['wandb']['save_qual'],
-                                            mapping=True, online_time_idx=time_idx, global_logging=True)
-                        else:
-                            report_progress(params, curr_data, 1, progress_bar, time_idx, sil_thres=config['mapping']['sil_thres'], 
-                                            mapping=True, online_time_idx=time_idx)
+
+                        report_progress(params, curr_data, 1, progress_bar, time_idx, sil_thres=config['mapping']['sil_thres'], 
+                                        mapping=True, online_time_idx=time_idx)
                     progress_bar.close()
                 except:
                     ckpt_output_dir = os.path.join(config["workdir"], config["run_name"])
@@ -1064,9 +928,6 @@ def rgbd_slam(config: dict):
             save_params_ckpt(params, ckpt_output_dir, time_idx)
             np.save(os.path.join(ckpt_output_dir, f"keyframe_time_indices{time_idx}.npy"), np.array(keyframe_time_indices))
         
-        # Increment WandB Time Step
-        if config['use_wandb']:
-            wandb_time_step += 1
 
         torch.cuda.empty_cache()
 
@@ -1085,24 +946,14 @@ def rgbd_slam(config: dict):
     print(f"Average Tracking/Frame Time: {tracking_frame_time_avg} s")
     print(f"Average Mapping/Iteration Time: {mapping_iter_time_avg*1000} ms")
     print(f"Average Mapping/Frame Time: {mapping_frame_time_avg} s")
-    if config['use_wandb']:
-        wandb_run.log({"Final Stats/Average Tracking Iteration Time (ms)": tracking_iter_time_avg*1000,
-                       "Final Stats/Average Tracking Frame Time (s)": tracking_frame_time_avg,
-                       "Final Stats/Average Mapping Iteration Time (ms)": mapping_iter_time_avg*1000,
-                       "Final Stats/Average Mapping Frame Time (s)": mapping_frame_time_avg,
-                       "Final Stats/step": 1})
+
     
     # Evaluate Final Parameters
     with torch.no_grad():
-        if config['use_wandb']:
-            eval(dataset, params, num_frames, eval_dir, sil_thres=config['mapping']['sil_thres'],
-                 wandb_run=wandb_run, wandb_save_qual=config['wandb']['eval_save_qual'],
-                 mapping_iters=config['mapping']['num_iters'], add_new_gaussians=config['mapping']['add_new_gaussians'],
-                 eval_every=config['eval_every'])
-        else:
-            eval(dataset, params, num_frames, eval_dir, sil_thres=config['mapping']['sil_thres'],
-                 mapping_iters=config['mapping']['num_iters'], add_new_gaussians=config['mapping']['add_new_gaussians'],
-                 eval_every=config['eval_every'])
+
+        eval(dataset, params, num_frames, eval_dir, sil_thres=config['mapping']['sil_thres'],
+                mapping_iters=config['mapping']['num_iters'], add_new_gaussians=config['mapping']['add_new_gaussians'],
+                eval_every=config['eval_every'])
 
     # Add Camera Parameters to Save them
     params['timestep'] = variables['timestep']
