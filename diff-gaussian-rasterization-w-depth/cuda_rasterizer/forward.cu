@@ -154,7 +154,7 @@ __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 r
 // Perform initial steps for each Gaussian prior to rasterization.
 template<int C>
 __global__ void preprocessCUDA(int P, int D, int M,
-	const float* orig_points,//世界点
+	const float* orig_points,//当前帧坐标下的点
 	const glm::vec3* scales,
 	const float scale_modifier,
 	const glm::vec4* rotations,
@@ -190,15 +190,15 @@ __global__ void preprocessCUDA(int P, int D, int M,
 
 	// Perform near culling, quit if outside.
 	float3 p_view;
-	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view)) //获取相机坐标系下点，且得大于0.2
+	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view)) //获取当前帧裁剪空间，且得大于0.2
 		return;
 
 	// Transform point by projecting
 	float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
-	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
-	float p_w = 1.0f / (p_hom.w + 0.0000001f);
-	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };  //ndc坐标
+	float4 p_hom = transformPoint4x4(p_orig, projmatrix);//以第一帧为观察视角的当前帧裁剪空间
 
+	float p_w = 1.0f / (p_hom.w + 0.0000001f);
+	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };  //归一化设备坐标（Normalized Device Coordinates, NDC）
 	// If 3D covariance matrix is precomputed, use it, otherwise compute
 	// from scaling and rotation parameters. 
 	const float* cov3D;
@@ -275,7 +275,7 @@ renderCUDA(
 	float* __restrict__ out_depth)
 {
 	// Identify current tile and associated min/max pixel range.
-	auto block = cg::this_thread_block();
+	auto block = cg::this_thread_block(); //每个像素都开了一个线程
 	uint32_t horizontal_blocks = (W + BLOCK_X - 1) / BLOCK_X;  //水平方向线程块数量
 	uint2 pix_min = { block.group_index().x * BLOCK_X, block.group_index().y * BLOCK_Y };
 	uint2 pix_max = { min(pix_min.x + BLOCK_X, W), min(pix_min.y + BLOCK_Y , H) };//group_index是线程块，当前tile的范围
@@ -321,14 +321,14 @@ renderCUDA(
 		{
 			int coll_id = point_list[range.x + progress];
 			collected_id[block.thread_rank()] = coll_id;
-			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
+			collected_xy[block.thread_rank()] = points_xy_image[coll_id]; //传进来的相机点投影后的像素坐标
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
 			collected_depth[block.thread_rank()] = depth[coll_id];
 		}
 		block.sync();  // Wait for all threads to finish，等待这个线程块所有的线程都完成
 
 		// Iterate over current batch
-		for (int j = 0; !done && j < min(BLOCK_SIZE, toDo); j++)
+		for (int j = 0; !done && j < min(BLOCK_SIZE, toDo); j++)//有多个高斯点覆盖到这个像素，因此需要遍历
 		{
 			// Keep track of current position in range
 			contributor++;
@@ -336,9 +336,9 @@ renderCUDA(
 			// Resample using conic matrix (cf. "Surface 
 			// Splatting" by Zwicker et al., 2001)
 			float2 xy = collected_xy[j];
-			float2 d = { xy.x - pixf.x, xy.y - pixf.y };
+			float2 d = { xy.x - pixf.x, xy.y - pixf.y };//计算当前像素到高斯点的距离
 			float4 con_o = collected_conic_opacity[j];
-			float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y;
+			float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y; //带协方差的高斯分布的指数部分
 			if (power > 0.0f) //指数部分应该小于0
 				continue;
 
@@ -346,10 +346,15 @@ renderCUDA(
 			// Obtain alpha by multiplying with Gaussian opacity
 			// and its exponential falloff from mean.
 			// Avoid numerical instabilities (see paper appendix). 
-			float alpha = min(0.99f, con_o.w * exp(power));
-			if (alpha < 1.0f / 255.0f)
+			float alpha = min(0.99f, con_o.w * exp(power));  //不考虑高斯函数的系数，而是乘不透明度
+			if (alpha < 1.0f / 255.0f)//值太小，无贡献度
 				continue;
-			float test_T = T * (1 - alpha);
+			// 光线穿过多个半透明层（例如玻璃、雾气等）。每一层都会吸收一部分光线，并且让剩余的光线通过。如果一个层的不透明度为 alpha，那么它会阻挡 alpha 比例的光线，并允许 (1 - alpha) 比例的光线通过。
+
+			// 当光线进入第一层时，它保留了 (1 - alpha_1) 的比例。
+			// 然后当这部分光线进入第二层时，它再次被削减，只保留 (1 - alpha_2) 的比例。
+			// 因此，经过两层后的光线量是原始光线量乘以 (1 - alpha_1) * (1 - alpha_2)。
+			float test_T = T * (1 - alpha); //
 			if (test_T < 0.0001f)
 			{
 				done = true;

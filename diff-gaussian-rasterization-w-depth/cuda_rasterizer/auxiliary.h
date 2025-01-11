@@ -146,10 +146,10 @@ __forceinline__ __device__ bool in_frustum(int idx,
 	float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
 
 	// Bring points to screen space
-	float4 p_hom = transformPoint4x4(p_orig, projmatrix);  //投影到屏幕坐标系
+	float4 p_hom = transformPoint4x4(p_orig, projmatrix);  //投影到的裁剪空间
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
-	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w }; //轴取1
-	p_view = transformPoint4x3(p_orig, viewmatrix); //相机坐标系
+	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w }; //归一
+	p_view = transformPoint4x3(p_orig, viewmatrix); //当前帧裁剪空间
 
 	if (p_view.z <= 0.2f)// || ((p_proj.x < -1.3 || p_proj.x > 1.3 || p_proj.y < -1.3 || p_proj.y > 1.3)))
 	{

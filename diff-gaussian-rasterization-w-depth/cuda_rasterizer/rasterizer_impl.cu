@@ -272,7 +272,7 @@ int CudaRasterizer::Rasterizer::forward(
 		geomState.rgb,
 		geomState.conic_opacity,
 		tile_grid,
-		geomState.tiles_touched,  //每个高斯的touched tile数量
+		geomState.tiles_touched,  //每个高斯的touched tile数量，每个点涉及到的瓦片
 		prefiltered
 	);
 
@@ -318,7 +318,7 @@ int CudaRasterizer::Rasterizer::forward(
 	if (num_rendered > 0)
 		identifyTileRanges << <(num_rendered + 255) / 256, 256 >> > (
 			num_rendered,
-			binningState.point_list_keys, //排序后的key，因此i同一个瓦片是连在一起的
+			binningState.point_list_keys, //排序后的key，因此同一个瓦片是连在一起的
 			imgState.ranges //记录渲染的点开始和结束时候的瓦片索引
 			);
 

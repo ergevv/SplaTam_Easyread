@@ -2,8 +2,8 @@ wandb sync /home/erge/桌面/开源工程/SplaTam_Easyread/wandb/offline-run-202
 
 
 python viz_scripts/final_recon.py configs/iphone/splatam.py
-
-
+python viz_scripts/final_recon.py configs/my_bike/splatam.py
+python viz_scripts/online_recon.py configs/my_bike/splatam.py
 双目视觉代替深度
 
 python -m pdb scripts/splatam.py

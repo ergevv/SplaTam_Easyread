@@ -15,6 +15,7 @@ data/Replica/room1_mesh.ply
 data/Replica/room2_mesh.ply
 data/TUM_RGBD/*
 data/Replica.zip
+data/my_bike/*
 datasets/gradslam_datasets/__pycache__/__init__.cpython-38.pyc
 datasets/gradslam_datasets/__pycache__/__init__.cpython-310.pyc
 datasets/gradslam_datasets/__pycache__/ai2thor.cpython-310.pyc

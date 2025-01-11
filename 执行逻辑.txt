@@ -59,7 +59,7 @@ rendervar = {
 （1）传入参数：
 args = (
             raster_settings.bg, 0 0 0背景
-            means3D, 世界点
+            means3D, 当前帧相机坐标系下的点
             colors_precomp, 对应点云颜色
             opacities,0.5
             scales,0.02，协方差
@@ -77,6 +77,7 @@ args = (
             raster_settings.campos,相机中心位置,世界坐标
             raster_settings.prefiltered,false
         )
+        raster_settings是第一帧得到的相机配置
 (2)定义需要输入的变量(rendered, out_color, radii, geomBuffer, binningBuffer, imgBuffer, out_depth);
 （3）将图像每16×16为一个块，tile_grid记录了图像xyz轴各有多少个块，block记录了一个块的大小
 （4）获取相机坐标系下点，且得大于0.2：
@@ -158,3 +159,17 @@ viewmatrix=w2c,世界转到相机第一帧坐标
 projmatrix=full_proj,世界转到相机第一帧坐标，再转到裁剪空间
 
 mean3_3D,世界坐标
+
+预测得到的位姿应该是在第一帧相机坐标系下的
+params['cam_unnorm_rots']是世界坐标系下的
+
+建图的意义是优化渲染参数
+
+
+以第一帧为观察视角，
+
+一个点会落在多个瓦片上，
+gaussian_keys_unsorted：索引为点对应的瓦片的位置，前64位为瓦片位置，后32位为深度
+gaussian_values_unsorted[off] = idx;点位置
+
+

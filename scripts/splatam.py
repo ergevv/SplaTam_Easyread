@@ -206,16 +206,8 @@ def initialize_first_timestep(dataset, num_frames, scene_radius_depth_ratio, mea
     # Setup Camera
     cam = setup_camera(color.shape[2], color.shape[1], intrinsics.cpu().numpy(), w2c.detach().cpu().numpy())
 
-    # C.密集化处理:如果传参提供了密集化数据集，则做相应处理
-    if densify_dataset is not None:
-        # Get Densification RGB-D Data & Camera Parameters
-        color, depth, densify_intrinsics, _ = densify_dataset[0]
-        color = color.permute(2, 0, 1) / 255 # (H, W, C) -> (C, H, W)
-        depth = depth.permute(2, 0, 1) # (H, W, C) -> (C, H, W)
-        densify_intrinsics = densify_intrinsics[:3, :3]
-        densify_cam = setup_camera(color.shape[2], color.shape[1], densify_intrinsics.cpu().numpy(), w2c.detach().cpu().numpy())
-    else:
-        densify_intrinsics = intrinsics
+
+    densify_intrinsics = intrinsics
 
     # D.初始化点云和初始化参数，重点函数get_pointcloud()和initialize_params()
     # Get Initial Point Cloud (PyTorch CUDA Tensor)
@@ -231,10 +223,8 @@ def initialize_first_timestep(dataset, num_frames, scene_radius_depth_ratio, mea
     # Initialize an estimate of scene radius for Gaussian-Splatting Densification
     variables['scene_radius'] = torch.max(depth)/scene_radius_depth_ratio
 
-    if densify_dataset is not None:
-        return params, variables, intrinsics, w2c, cam, densify_intrinsics, densify_cam
-    else:
-        return params, variables, intrinsics, w2c, cam
+
+    return params, variables, intrinsics, w2c, cam
 
 
 # 函数目的：在Tracking、Mapping的过程中计算当前帧的loss
@@ -745,17 +735,7 @@ def rgbd_slam(config: dict):
                 params['cam_unnorm_rots'][..., time_idx] = candidate_cam_unnorm_rot
                 params['cam_trans'][..., time_idx] = candidate_cam_tran
         
-        # 另一个分支，即如果当前时间索引 time_idx 大于 0 且使用真实姿态
-        elif time_idx > 0 and config['tracking']['use_gt_poses']:
-            with torch.no_grad():
-                # Get the ground truth pose relative to frame 0
-                rel_w2c = curr_gt_w2c[-1]
-                rel_w2c_rot = rel_w2c[:3, :3].unsqueeze(0).detach()
-                rel_w2c_rot_quat = matrix_to_quaternion(rel_w2c_rot)
-                rel_w2c_tran = rel_w2c[:3, 3].detach()
-                # Update the camera parameters
-                params['cam_unnorm_rots'][..., time_idx] = rel_w2c_rot_quat
-                params['cam_trans'][..., time_idx] = rel_w2c_tran
+
         
         # 更新运行时间
         # Update the runtime numbers
@@ -815,7 +795,7 @@ def rgbd_slam(config: dict):
                 # 重点函数：keyframe_selection_overlap，根据重叠程度进行关键帧选择
                 selected_keyframes = keyframe_selection_overlap(depth, curr_w2c, intrinsics, keyframe_list[:-1], num_keyframes)
                 selected_time_idx = [keyframe_list[frame_idx]['id'] for frame_idx in selected_keyframes]
-                # 添加最后一帧和当前帧到关键帧列表
+                # 添加关键帧最后一帧和当前帧到关键帧列表
                 if len(keyframe_list) > 0:
                     # Add last keyframe to the selected keyframes
                     selected_time_idx.append(keyframe_list[-1]['id'])
@@ -921,12 +901,6 @@ def rgbd_slam(config: dict):
                 # Add to keyframe list
                 keyframe_list.append(curr_keyframe)
                 keyframe_time_indices.append(time_idx)
-        
-        # Checkpoint every iteration
-        if time_idx % config["checkpoint_interval"] == 0 and config['save_checkpoints']:
-            ckpt_output_dir = os.path.join(config["workdir"], config["run_name"])
-            save_params_ckpt(params, ckpt_output_dir, time_idx)
-            np.save(os.path.join(ckpt_output_dir, f"keyframe_time_indices{time_idx}.npy"), np.array(keyframe_time_indices))
         
 
         torch.cuda.empty_cache()
