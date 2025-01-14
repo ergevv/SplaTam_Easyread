@@ -13,7 +13,7 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                "configs/replica/splatam.py"
+                "configs/my_bike/splatam.py"
             ],
             "env": {
                 "CUDA_VISIBLE_DEVICES": "0"

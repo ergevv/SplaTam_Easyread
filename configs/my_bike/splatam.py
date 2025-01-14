@@ -1,11 +1,11 @@
 import os
 from os.path import join as p_join
 
-scenes = ["my_bike","my_bike2"]
+scenes = ["my_bike","my_bike2","test3"]
 
 primary_device="cuda:0"
 seed = 0
-scene_name = scenes[1]
+scene_name = scenes[2]
 
 map_every = 1
 keyframe_every = 5
@@ -45,7 +45,7 @@ config = dict(
     ),
     data=dict(
         basedir="./data/my_bike",
-        gradslam_data_cfg="./configs/data/my_bike.yaml",
+        gradslam_data_cfg="./stereo_cam.yml",
         sequence=scene_name,
         desired_image_height=680,
         desired_image_width=1200,
