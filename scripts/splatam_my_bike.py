@@ -592,7 +592,7 @@ def rgbd_slam(config: dict):
     # )
 
     # 
-    dataset = MyBikeDataset(dataset_config["basedir"], os.path.basename(dataset_config["sequence"]), dataset_config["gradslam_data_cfg"],2)
+    dataset = MyBikeDataset(dataset_config["basedir"], os.path.basename(dataset_config["sequence"]), dataset_config["gradslam_data_cfg"],1)
 
 
 

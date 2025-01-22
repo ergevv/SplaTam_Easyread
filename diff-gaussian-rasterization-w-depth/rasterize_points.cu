@@ -138,7 +138,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const torch::Tensor& imageBuffer) 
 {
   const int P = means3D.size(0);
-  const int H = dL_dout_color.size(1);
+  const int H = dL_dout_color.size(1); //损失值对颜色的梯度
   const int W = dL_dout_color.size(2);
   
   int M = 0;

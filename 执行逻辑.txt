@@ -66,15 +66,15 @@ args = (
             rotations,1 0 0 0，协方差
             raster_settings.scale_modifier,1.0，手动控制高斯分布的尺度，协方差的权重系数
             cov3Ds_precomp,empty
-            raster_settings.viewmatrix,Tc->w,与第一个相机对齐
-            raster_settings.projmatrix,#第一个相机的坐标投影到屏幕坐标
+            raster_settings.viewmatrix,Tc1->w,转到第一帧相机视角
+            raster_settings.projmatrix,w2c1.bmm(opengl_proj)，#当前相机投影到屏幕坐标，再转到第一帧视角
             raster_settings.tanfovx,w / (2 * fx),
             raster_settings.tanfovy,h / (2 * fy),
             raster_settings.image_height,
             raster_settings.image_width,
             sh,empty
             raster_settings.sh_degree,0
-            raster_settings.campos,相机中心位置,世界坐标
+            raster_settings.campos,第一帧相机中心在世界坐标的位置
             raster_settings.prefiltered,false
         )
         raster_settings是第一帧得到的相机配置
@@ -173,3 +173,69 @@ gaussian_keys_unsorted：索引为点对应的瓦片的位置，前64位为瓦�
 gaussian_values_unsorted[off] = idx;点位置
 
 
+球谐函数这里是没有使用的
+
+
+        # Restructure args as C++ method expects them
+        args = (raster_settings.bg,
+                means3D, 
+                radii, 
+                colors_precomp, 
+                scales, 
+                rotations, 
+                raster_settings.scale_modifier, 
+                cov3Ds_precomp, 
+                raster_settings.viewmatrix, 
+                raster_settings.projmatrix, 
+                raster_settings.tanfovx, 
+                raster_settings.tanfovy, 
+                grad_out_color, 
+                sh, 
+                raster_settings.sh_degree, 
+                raster_settings.campos,
+                geomBuffer,
+                num_rendered,
+                binningBuffer,
+                imgBuffer)
+
+geomState:
+    clamped:false
+    means2D:以第一帧为观察视角的当前帧坐标的裁剪空间-》NDC-》Pix
+    depths:相机点在第一帧观察视角下的深度
+    cov3D:记录每个高斯分布的3Dh协方差
+    rgb:不使用SH，因此这个变量没有
+    conic_opacity:记录了2D协方差矩阵和不透明度(初始为自定义，优化过程中改变)
+    tiles_touched:高斯分布影响到的瓦片数量
+    scanning_space:临时空间，无用
+    scan_size:临时空间，无用
+    point_offsets:每个高斯分布触及的瓦片的累积偏移量
+
+binningState:
+    point_list_keys_unsorted:大小为每个高斯分布触及的瓦片数量的总和，前64位记录瓦片位置，后32位为深度geomState.depths，每个高斯分布占用多个瓦片，所以一个i高斯分布会记录多个，索引是point_offsets的对应值
+    point_list_unsorted:值是点位置的索引，索引是point_offsets的对应值
+    list_sorting_space:临时空间，无用
+    sorting_size:临时空间，无用
+    point_list_keys:根据point_list_keys_unsorted来从小到大排序，因为瓦片位置在前面，因此同一个瓦片排在一起
+    point_list:将point_list_unsorted排序跟point_list_keys一样
+
+imgState:
+    ranges:大小与瓦片数量一致，初始为0,记录point_list_keys里同一个瓦片开始和结束时候的索引，x记录开始，y记录结束
+    accum_alpha:final_T,记录图像每个像素最后剩余的透明度
+    n_contrib:记录图像每个像素最后经过了多少层（高斯分布贡献数量）
+
+
+P:点的数量
+radii:每个高斯分布的影响半径，初始全为0，后续通过计算协方差矩阵的特征值的3倍来确定
+
+grid、tile_grid：图像含有16×16大小块的网格数量，瓦片数量
+block:16*16
+
+renderCUDA:
+1、根据线程块和线程索引，计算当前线程处理的像素
+2、填充线程块所有数据
+
+out_depth:透明度为0.5时候的深度
+out_color:每一个高斯分布合起来的颜色
+
+
+后向传播:

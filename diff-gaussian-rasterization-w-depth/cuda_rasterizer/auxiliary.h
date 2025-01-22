@@ -40,7 +40,7 @@ __device__ const float SH_C3[] = {
 
 __forceinline__ __device__ float ndc2Pix(float v, int S)
 {
-	return ((v + 1.0) * S - 1.0) * 0.5;
+	return ((v + 1.0) * S - 1.0) * 0.5;//
 }
 
 __forceinline__ __device__ void getRect(const float2 p, int max_radius, uint2& rect_min, uint2& rect_max, dim3 grid)
@@ -149,7 +149,7 @@ __forceinline__ __device__ bool in_frustum(int idx,
 	float4 p_hom = transformPoint4x4(p_orig, projmatrix);  //投影到的裁剪空间
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
 	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w }; //归一
-	p_view = transformPoint4x3(p_orig, viewmatrix); //当前帧裁剪空间
+	p_view = transformPoint4x3(p_orig, viewmatrix); //第一帧视角下的相机点
 
 	if (p_view.z <= 0.2f)// || ((p_proj.x < -1.3 || p_proj.x > 1.3 || p_proj.y < -1.3 || p_proj.y > 1.3)))
 	{

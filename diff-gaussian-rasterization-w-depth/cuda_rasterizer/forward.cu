@@ -81,12 +81,12 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 
 	const float limx = 1.3f * tan_fovx;
 	const float limy = 1.3f * tan_fovy;
-	const float txtz = t.x / t.z;
+	const float txtz = t.x / t.z;  //计算视角，不能超过视场角
 	const float tytz = t.y / t.z;
-	t.x = min(limx, max(-limx, txtz)) * t.z;
+	t.x = min(limx, max(-limx, txtz)) * t.z; //取视角较小的，保证不能超过视场角
 	t.y = min(limy, max(-limy, tytz)) * t.z;
 
-	glm::mat3 J = glm::mat3(
+	glm::mat3 J = glm::mat3(  //投影矩阵线性化，通过泰勒公式获得3d 到 2d 的领域映射，使用相机坐标转像素坐标求导，直接使用内参矩阵（也称为相机矩阵或相机内参）将3D相机坐标转换为2D像素坐标，以及使用投影矩阵将3D相机坐标先转换到标准化设备坐标（Normalized Device Coordinates, NDC），然后再转换到像素坐标，这两种方法在数学上是等价的
 		focal_x / t.z, 0.0f, -(focal_x * t.x) / (t.z * t.z),
 		0.0f, focal_y / t.z, -(focal_y * t.y) / (t.z * t.z),
 		0, 0, 0);
@@ -98,12 +98,13 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 
 	glm::mat3 T = W * J;
 
-	glm::mat3 Vrk = glm::mat3(
+	glm::mat3 Vrk = glm::mat3( //glm::mat3 并提供9个连续的数值时，这些值是按照列主序（column-major order）填充到矩阵中的。先填充第一列，然后填充第二列，依次类推。
 		cov3D[0], cov3D[1], cov3D[2],
 		cov3D[1], cov3D[3], cov3D[4],
 		cov3D[2], cov3D[4], cov3D[5]);
 
-	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T;
+	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T; //变量是列优先，所以需要转置
+
 
 	// Apply low-pass filter: every Gaussian should be at least
 	// one pixel wide/high. Discard 3rd row and column.
@@ -275,6 +276,7 @@ renderCUDA(
 	float* __restrict__ out_depth)
 {
 	// Identify current tile and associated min/max pixel range.
+	//根据线程块和线程索引，计算当前线程处理的像素
 	auto block = cg::this_thread_block(); //每个像素都开了一个线程
 	uint32_t horizontal_blocks = (W + BLOCK_X - 1) / BLOCK_X;  //水平方向线程块数量
 	uint2 pix_min = { block.group_index().x * BLOCK_X, block.group_index().y * BLOCK_Y };
@@ -316,11 +318,11 @@ renderCUDA(
 			break;
 
 		// Collectively fetch per-Gaussian data from global to shared
-		int progress = i * BLOCK_SIZE + block.thread_rank();
-		if (range.x + progress < range.y)  //每个点都是BLOCK_SIZE的倍数，导致range范围也是其倍数，所以一定满足
+		int progress = i * BLOCK_SIZE + block.thread_rank();//thread_rank按启动的顺序分配线程的索引0～16*16-1
+		if (range.x + progress < range.y)  //因为每个线程都在处理，所以progress每次增加BLOCK_SIZE，一开始是深度小的，物体是先看到前的，再看到后的
 		{
 			int coll_id = point_list[range.x + progress];
-			collected_id[block.thread_rank()] = coll_id;
+			collected_id[block.thread_rank()] = coll_id; //只放入同个瓦片的数据
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id]; //传进来的相机点投影后的像素坐标
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
 			collected_depth[block.thread_rank()] = depth[coll_id];
@@ -336,7 +338,7 @@ renderCUDA(
 			// Resample using conic matrix (cf. "Surface 
 			// Splatting" by Zwicker et al., 2001)
 			float2 xy = collected_xy[j];
-			float2 d = { xy.x - pixf.x, xy.y - pixf.y };//计算当前像素到高斯点的距离
+			float2 d = { xy.x - pixf.x, xy.y - pixf.y };//计算当前像素到高斯点的距离，在ndc转pix时，减1的目的是什么
 			float4 con_o = collected_conic_opacity[j];
 			float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y; //带协方差的高斯分布的指数部分
 			if (power > 0.0f) //指数部分应该小于0
@@ -346,7 +348,7 @@ renderCUDA(
 			// Obtain alpha by multiplying with Gaussian opacity
 			// and its exponential falloff from mean.
 			// Avoid numerical instabilities (see paper appendix). 
-			float alpha = min(0.99f, con_o.w * exp(power));  //不考虑高斯函数的系数，而是乘不透明度
+			float alpha = min(0.99f, con_o.w * exp(power));  //不考虑高斯函数的系数，而是乘不透明度，根据高斯分布，计算当前位置不透明度
 			if (alpha < 1.0f / 255.0f)//值太小，无贡献度
 				continue;
 			// 光线穿过多个半透明层（例如玻璃、雾气等）。每一层都会吸收一部分光线，并且让剩余的光线通过。如果一个层的不透明度为 alpha，那么它会阻挡 alpha 比例的光线，并允许 (1 - alpha) 比例的光线通过。
@@ -354,8 +356,8 @@ renderCUDA(
 			// 当光线进入第一层时，它保留了 (1 - alpha_1) 的比例。
 			// 然后当这部分光线进入第二层时，它再次被削减，只保留 (1 - alpha_2) 的比例。
 			// 因此，经过两层后的光线量是原始光线量乘以 (1 - alpha_1) * (1 - alpha_2)。
-			float test_T = T * (1 - alpha); //
-			if (test_T < 0.0001f)
+			float test_T = T * (1 - alpha); //透明度累计值
+			if (test_T < 0.0001f)//没有透明度了，可以退出了
 			{
 				done = true;
 				continue;
@@ -363,14 +365,14 @@ renderCUDA(
 
 			// Eq. (3) from 3D Gaussian splatting paper.
 			for (int ch = 0; ch < CHANNELS; ch++)
-				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;  //叠加tile里面对投影点的影响
+				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;  //叠加tile里面对投影点的影响，不透明度代表颜色的贡献，T记录了上一次的透明度累计，即还剩多少透明度没有用完，将没用完的透明度按照这次不透明度分配
 
             // Mean depth:
 //             float dep = collected_depth[j];
 //             D += dep * alpha * T;
 
             // Median depth:
-            if (T > 0.5f && test_T < 0.5)
+            if (T > 0.5f && test_T < 0.5) //取透明度为0.5时候的深度值
 			{
 			    float dep = collected_depth[j];
 				D = dep;
@@ -392,7 +394,7 @@ renderCUDA(
 		final_T[pix_id] = T;
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
-			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];//如果还剩余透明度就分配给背景
 		out_depth[pix_id] = D;
 	}
 }

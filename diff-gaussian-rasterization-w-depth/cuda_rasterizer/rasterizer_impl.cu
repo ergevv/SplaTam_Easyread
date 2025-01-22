@@ -120,7 +120,7 @@ __global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* rang
 		return;
 
 	// Read tile ID from key. Update start/end of tile range if at limit.
-	uint64_t key = point_list_keys[idx];
+	uint64_t key = point_list_keys[idx];//这里的索引是point_list_keys数量一致
 	uint32_t currtile = key >> 32;
 	if (idx == 0)
 		ranges[currtile].x = 0;
@@ -220,7 +220,7 @@ int CudaRasterizer::Rasterizer::forward(
 	const bool prefiltered,
 	float* out_color,
 	float* out_depth,
-	int* radii)
+	int* radii) //设为0
 {
 	const float focal_y = height / (2.0f * tan_fovy);
 	const float focal_x = width / (2.0f * tan_fovx);

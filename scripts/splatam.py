@@ -9,9 +9,6 @@ _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.path.insert(0, _BASE_DIR)
 
-# print("System Paths:")
-# for p in sys.path:
-#     print(p)
 
 # os.environ["WANDB_API_KEY"] = '5d144e77a0753829930ea2a15be3e9805f90d96f' # 将引号内的+替换成自己在wandb上的一串值
 # os.environ["WANDB_MODE"] = "offline"   # 离线  
@@ -21,7 +18,6 @@ sys.path.insert(0, _BASE_DIR)
 pid = os.getpid()
 print(f"Current process ID: {pid}")
 
-#time.sleep(5)  # 暂停500毫秒，即0.5秒
 
 import cv2
 import matplotlib.pyplot as plt

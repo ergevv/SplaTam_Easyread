@@ -211,12 +211,12 @@ def visualize(scene_path, cfg):
         cols = np.array(cols)
         all_cols = [cols]
         out_pts = [np.array(cam_centers)]
-        linesets = make_lineset(out_pts, all_cols, num_lines)
-        lines = o3d.geometry.LineSet()
-        lines.points = linesets[0].points
-        lines.colors = linesets[0].colors
-        lines.lines = linesets[0].lines
-        vis.add_geometry(lines)
+        # linesets = make_lineset(out_pts, all_cols, num_lines)
+        # lines = o3d.geometry.LineSet()
+        # lines.points = linesets[0].points
+        # lines.colors = linesets[0].colors
+        # lines.lines = linesets[0].lines
+        # vis.add_geometry(lines)
 
     # Initialize View Control
     view_k = k * cfg['view_scale']
