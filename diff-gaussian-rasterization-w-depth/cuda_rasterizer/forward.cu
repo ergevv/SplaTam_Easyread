@@ -348,7 +348,7 @@ renderCUDA(
 			// Obtain alpha by multiplying with Gaussian opacity
 			// and its exponential falloff from mean.
 			// Avoid numerical instabilities (see paper appendix). 
-			float alpha = min(0.99f, con_o.w * exp(power));  //不考虑高斯函数的系数，而是乘不透明度，根据高斯分布，计算当前位置不透明度
+			float alpha = min(0.99f, con_o.w * exp(power));  //不考虑高斯函数的系数，如果考虑这个系数，其实每一层这个系数的值都一样，只与协方差有关，因此这个系数可以同时控制每层的不透明度的变化幅度，而是乘不透明度，根据高斯分布，计算当前位置不透明度
 			if (alpha < 1.0f / 255.0f)//值太小，无贡献度
 				continue;
 			// 光线穿过多个半透明层（例如玻璃、雾气等）。每一层都会吸收一部分光线，并且让剩余的光线通过。如果一个层的不透明度为 alpha，那么它会阻挡 alpha 比例的光线，并允许 (1 - alpha) 比例的光线通过。
