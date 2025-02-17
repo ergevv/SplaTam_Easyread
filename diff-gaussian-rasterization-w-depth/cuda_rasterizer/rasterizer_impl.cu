@@ -363,8 +363,8 @@ void CudaRasterizer::Rasterizer::backward(
 	char* geom_buffer,
 	char* binning_buffer,
 	char* img_buffer,
-	const float* dL_dpix,
-	float* dL_dmean2D,
+	const float* dL_dpix,//所求的梯度
+	float* dL_dmean2D,//0
 	float* dL_dconic,
 	float* dL_dopacity,
 	float* dL_dcolor,
@@ -393,7 +393,7 @@ void CudaRasterizer::Rasterizer::backward(
 	// opacity and RGB of Gaussians from per-pixel loss gradients.
 	// If we were given precomputed colors and not SHs, use them.
 	const float* color_ptr = (colors_precomp != nullptr) ? colors_precomp : geomState.rgb;
-	BACKWARD::render(
+	BACKWARD::render( //获取各变量之间的梯度
 		tile_grid,
 		block,
 		imgState.ranges,
@@ -406,7 +406,7 @@ void CudaRasterizer::Rasterizer::backward(
 		imgState.accum_alpha,
 		imgState.n_contrib,
 		dL_dpix,
-		(float3*)dL_dmean2D,
+		(float3*)dL_dmean2D,//0
 		(float4*)dL_dconic,
 		dL_dopacity,
 		dL_dcolor);

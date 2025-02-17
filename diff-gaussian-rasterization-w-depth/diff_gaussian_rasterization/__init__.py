@@ -124,6 +124,9 @@ class _RasterizeGaussians(torch.autograd.Function):
         # Compute gradients for relevant tensors by invoking backward method
         grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_sh, grad_scales, grad_rotations = _C.rasterize_gaussians_backward(*args)        
 
+        import pydevd
+        pydevd.settrace(suspend=False, trace_only_current_thread=True)
+
         grads = (
             grad_means3D,
             grad_means2D,
@@ -136,7 +139,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             None,
         )
 
-        return grads
+        return grads  #返回叶子节点的梯度，backward方法返回的梯度列表（或元组）中的每个元素都对应于forward方法的一个输入参数。这意味着第一个梯度是关于第一个输入参数的梯度，第二个梯度是关于第二个输入参数的梯度，以此类推。
 
 class GaussianRasterizationSettings(NamedTuple):
     image_height: int

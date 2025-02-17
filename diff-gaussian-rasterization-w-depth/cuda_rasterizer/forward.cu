@@ -85,8 +85,8 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 	const float tytz = t.y / t.z;
 	t.x = min(limx, max(-limx, txtz)) * t.z; //取视角较小的，保证不能超过视场角
 	t.y = min(limy, max(-limy, tytz)) * t.z;
-
-	glm::mat3 J = glm::mat3(  //投影矩阵线性化，通过泰勒公式获得3d 到 2d 的领域映射，使用相机坐标转像素坐标求导，直接使用内参矩阵（也称为相机矩阵或相机内参）将3D相机坐标转换为2D像素坐标，以及使用投影矩阵将3D相机坐标先转换到标准化设备坐标（Normalized Device Coordinates, NDC），然后再转换到像素坐标，这两种方法在数学上是等价的
+	//投影矩阵线性化，通过泰勒公式获得3d 到 2d 的领域映射，使用相机坐标转像素坐标求导，直接使用内参矩阵（也称为相机矩阵或相机内参）将3D相机坐标转换为2D像素坐标，以及使用投影矩阵将3D相机坐标先转换到标准化设备坐标（Normalized Device Coordinates, NDC），然后再转换到像素坐标，这两种方法在数学上是等价的
+	glm::mat3 J = glm::mat3(  
 		focal_x / t.z, 0.0f, -(focal_x * t.x) / (t.z * t.z),
 		0.0f, focal_y / t.z, -(focal_y * t.y) / (t.z * t.z),
 		0, 0, 0);
@@ -103,7 +103,7 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 		cov3D[1], cov3D[3], cov3D[4],
 		cov3D[2], cov3D[4], cov3D[5]);
 
-	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T; //变量是列优先，所以需要转置
+	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T; //变量是列优先，所以需要转置？
 
 
 	// Apply low-pass filter: every Gaussian should be at least
@@ -196,6 +196,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 
 	// Transform point by projecting
 	float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
+	//float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], 0.01 };
 	float4 p_hom = transformPoint4x4(p_orig, projmatrix);//以第一帧为观察视角的当前帧裁剪空间
 
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);

@@ -176,27 +176,7 @@ gaussian_values_unsorted[off] = idx;点位置
 球谐函数这里是没有使用的
 
 
-        # Restructure args as C++ method expects them
-        args = (raster_settings.bg,
-                means3D, 
-                radii, 
-                colors_precomp, 
-                scales, 
-                rotations, 
-                raster_settings.scale_modifier, 
-                cov3Ds_precomp, 
-                raster_settings.viewmatrix, 
-                raster_settings.projmatrix, 
-                raster_settings.tanfovx, 
-                raster_settings.tanfovy, 
-                grad_out_color, 
-                sh, 
-                raster_settings.sh_degree, 
-                raster_settings.campos,
-                geomBuffer,
-                num_rendered,
-                binningBuffer,
-                imgBuffer)
+
 
 geomState:
     clamped:false
@@ -229,6 +209,8 @@ radii:每个高斯分布的影响半径，初始全为0，后续通过计算协�
 
 grid、tile_grid：图像含有16×16大小块的网格数量，瓦片数量
 block:16*16
+num_rendered:每个高斯分布触及的瓦片数量的总和
+
 
 renderCUDA:
 1、根据线程块和线程索引，计算当前线程处理的像素
@@ -239,3 +221,55 @@ out_color:每一个高斯分布合起来的颜色
 
 
 后向传播:
+# Restructure args as C++ method expects them
+args = (raster_settings.bg, 0
+        means3D, 相机点
+        radii, 高斯分布影响范围
+        colors_precomp, 颜色
+        scales, 协方差
+        rotations, 协方差
+        raster_settings.scale_modifier, 协方差修改比例
+        cov3Ds_precomp, empty
+        raster_settings.viewmatrix, 
+        raster_settings.projmatrix, 
+        raster_settings.tanfovx, 
+        raster_settings.tanfovy, 
+        grad_out_color, 损失值对颜色的梯度
+        sh, empty
+        raster_settings.sh_degree, 
+        raster_settings.campos,
+        geomBuffer,
+        num_rendered,R
+        binningBuffer,
+        imgBuffer)
+
+        BACKWARD::render(
+            tile_grid,
+            block,
+            imgState.ranges,
+            binningState.point_list,
+            width, height, //图像长宽
+            background,
+            geomState.means2D,
+            geomState.conic_opacity,
+            color_ptr,
+            imgState.accum_alpha,
+            imgState.n_contrib,
+            dL_dpix,
+            (float3*)dL_dmean2D,
+            (float4*)dL_dconic,
+            dL_dopacity,
+            dL_dcolor);
+
+
+            grads = (
+                grad_means3D,
+                grad_means2D,
+                grad_sh,
+                grad_colors_precomp,
+                grad_opacities,
+                grad_scales,
+                grad_rotations,
+                grad_cov3Ds_precomp,
+                None,
+            )

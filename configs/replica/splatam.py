@@ -7,7 +7,7 @@ scenes = ["room0_test3","room0_test","room0", "room1", "room2",
 
 primary_device="cuda:0"
 seed = 0
-scene_name = scenes[1]
+scene_name = scenes[0]
 
 map_every = 1
 keyframe_every = 5

@@ -917,13 +917,6 @@ def rgbd_slam(config: dict):
     print(f"Average Mapping/Iteration Time: {mapping_iter_time_avg*1000} ms")
     print(f"Average Mapping/Frame Time: {mapping_frame_time_avg} s")
 
-    
-    # Evaluate Final Parameters
-    with torch.no_grad():
-
-        eval(dataset, params, num_frames, eval_dir, sil_thres=config['mapping']['sil_thres'],
-                mapping_iters=config['mapping']['num_iters'], add_new_gaussians=config['mapping']['add_new_gaussians'],
-                eval_every=config['eval_every'])
 
     # Add Camera Parameters to Save them
     params['timestep'] = variables['timestep']
@@ -940,9 +933,7 @@ def rgbd_slam(config: dict):
     # Save Parameters
     save_params(params, output_dir)
 
-    # Close WandB Run
-    if config['use_wandb']:
-        wandb.finish()
+
 
 # 主程序入口
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ git clone https://github.com/ergevv/SplaTam_Easyread.git
 2、安装cuda11.3
 3、在原版上修改了requirements.txt，并把diff-gaussian-rasterization-w-depth直接下载到本地，并修改setup.py方便安装调试
 ```bash
-pip install -r venv_requirements.txt
+pip install -r requirements.txt
 ```
 4、增加argparse参数，方便调试
 5、修改launch.json文件，支持cuda调试，注意cuda调试不支持中文路径
@@ -72,7 +72,502 @@ python viz_scripts/online_recon.py configs/replica/splatam.py
 (3)高斯分布经过线性变换仍是高斯分布
 
 4、透视投影矩阵
+基于相机内参推导透视投影矩阵（splatam）：
+
+$$
+M_{cam}= \begin{bmatrix}
+\frac{2 \cdot fx}{w} & 0.0 & \frac{(w - 2 \cdot cx)}{w} & 0.0 \\
+0.0 & \frac{2 \cdot fy}{h} & \frac{(h - 2 \cdot cy)}{h} & 0.0 \\
+0 & 0 & \frac{far + near}{near - far} & \frac{2far \cdot near}{near - far} \\
+0.0 & 0.0 & -1.0 & 0.0
+\end{bmatrix}$$
+
+- `fx`: 相机内参中的焦距在x方向上的分量。
+- `fy`: 相机内参中的焦距在y方向上的分量。
+- `cx`: 图像中心在x方向上的坐标。
+- `cy`: 图像中心在y方向上的坐标。
+- `w`: 图像宽度。
+- `h`: 图像高度。
+- `near`: 视锥体（frustum）的近裁剪平面距离。
+- `far`: 视锥体（frustum）的远裁剪平面距离。
+注：此处深度为负
+
+参考[透射投影矩阵的数学推导](https://zhuanlan.zhihu.com/p/421962223)的推导得到透视投影矩阵另一种形式：
+$$
+M_p = 
+\begin{bmatrix}
+\frac{2n}{r - l} & 0 & \frac{r + l}{r - l} & 0 \\
+0 & \frac{2n}{t - b} & \frac{t + b}{t - b} & 0 \\
+0 & 0 & \frac{f + n}{n - f} & \frac{2fn}{n - f} \\
+0 & 0 & -1 & 0
+\end{bmatrix}
+$$
+- `n`: 近裁剪平面距离。
+- `f`: 远裁剪平面距离。
+- `r`: 近裁剪平面的右边界。
+- `l`: 近裁剪平面的左边界。
+- `t`: 近裁剪平面的上边界。
+- `b`: 近裁剪平面的下边界。
+
+
+可以先看这两个参考再往下看：
+参考：
+**https://zhuanlan.zhihu.com/p/421962223**
+**https://blog.csdn.net/qq_43758883/article/details/116503614**
+
+
+通过视场角来从$M_p$得到$M_{cam}$:
+
+
+![](https://i-blog.csdnimg.cn/direct/ef507936ae76496f8d12bb3e68d4fbd8.png#pic_center)
+
+
+
+
+上图，忽略y轴，上半部分是相机坐标系，下班部分是像素坐标系，可见相机坐标下的视场角和像素坐标下的视场角是一致的，
+1、
+在相机坐标系下：
+$$tan(fovx/2) = \frac{r-l}{2n}$$
+
+在像素坐标系下：
+$$tan(fovx/2 )= \frac{fx}{w/2} $$
+将上式公式同时提取缩放因子：
+$$tan(fovx/2) = \frac{ \alpha f}{\alpha w'/2}  = \frac{ f}{ w'/2} =  \frac{r-l}{2n}$$
+
+2、
+$$ 
+\begin{align}
+\alpha (r-l) &= w \\
+\alpha (r+l) &= (w - 2cx)
+\end{align}
+$$
+所以，
+$$ \frac {r+l}{r-l} = \frac {(w - 2cx)}{w}$$
+
+同理，透视投影矩阵y轴也是如此推导。
+
+#### splatam非标准透视投影
+splatam使用的非标准透视投影，与一般不同，splatam是把深度缩放到 [0,1]：
+此处深度全取正数，因此第三、四列需要加个负号。
+$$
+M_{splatam}= \begin{bmatrix}
+\frac{2 \cdot fx}{w} & 0.0 & \frac{-(w - 2 \cdot cx)}{w} & 0.0 \\
+0.0 & \frac{2 \cdot fy}{h} & \frac{-(h - 2 \cdot cy)}{h} & 0.0 \\
+0.0 & 0.0 & \frac{far}{far - near} & \frac{-(far \cdot near)}{far - near} \\
+0.0 & 0.0 & 1.0 & 0.0
+\end{bmatrix}$$
+可以看到矩阵的第三行与之前的不同，它的作用是把深度最后归一化到 [0,1]。
+设相机坐标下的点位置为$[x_{cam} , y_{cam} ,z_{cam},1]$，对应裁剪空间坐标为$[x_{c} , y_{c} ,z_{c},w_c]$，对应NDC坐标$[x_{n} , y_{n} ,z_{n},1]$。
+故：
+$$
+\begin{bmatrix}x_{c} \\ y_{c} \\ z_{c} \\w_c \end{bmatrix}
+=M_{splatam} \begin{bmatrix}x_{cam} \\ y_{cam} \\ z_{cam} \\1 \end{bmatrix}
+$$
+考虑深度，即z轴的变换有：
+$$
+\begin{align}
+z_c &= \frac{far}{far - near}   z_{cam}  - \frac{(far \cdot near)}{far - near} \\
+w_c &= z_{cam}
+\end{align}
+$$
+
+归一化处理，得到NDC坐标
+$$
+\begin{align}
+z_n &= \frac {z_c}{w_c}  = \frac{\frac{far}{far - near}   z_{cam}  - \frac{(far \cdot near)}{far - near}}{z_{cam}} \\
+&= \frac{far - \frac{(far \cdot near)}{z_{cam}}}{far - near}
+\end{align}
+$$
+故，当$z_{cam} = near$时，$z_n = 0$， 当$z_{cam} = far$时，$z_n = 1$，所以深度最后是限制在 [0,1]。为什么要怎样设计呢，因为使用3DGS渲染时，只考虑深度大于0的。
+
 
 
 
 5、透视投影矩阵线性化：
+透视变换是非线性的，高斯分布经过透视变换后会不再符合高斯分布，所以需要线性化。
+线性化规则：使用当前点位置来作为泰勒公式的基点来表达领域附近的关系，使用投影矩阵线性化比较麻烦，因此这里直接使用针孔模型的公式线性化。它与使用投影矩阵将3D相机坐标先转换到标准化设备坐标（Normalized Device Coordinates, NDC），然后再转换到像素坐标，这两种方法在数学上是等价的。只不过使用投影矩阵有利于并行处理。
+$$
+J = 
+\begin{bmatrix}
+\frac{fx}{t_z} & 0 & -\frac{fx \cdot t_x}{t_z^2} \\
+0 & \frac{fy}{t_z} & -\frac{fy \cdot t_y}{t_z^2} \\
+0 & 0 & 0
+\end{bmatrix}
+$$
+
+Alpha Blending 是一种用于图像合成和透明度处理的常用技术，广泛应用于计算机图形学、图像处理和视频处理等领域。其基本公式用于将两个图像（或图层）按照一定的透明度进行混合。
+
+### Alpha Blending 的基本公式
+
+假设有两个图像 \( C_1 \) 和 \( C_2 \)，分别表示前景和背景图像的颜色值（通常为 RGB 颜色值）。\( \alpha \) 表示前景图像 \( C_1 \) 的透明度（alpha 值），取值范围为 \([0, 1]\)：
+
+- \( \alpha = 0 \) 表示完全透明（前景不可见）。
+- \( \alpha = 1 \) 表示完全不透明（前景完全覆盖背景）。
+
+Alpha Blending 的混合公式如下：
+
+\[
+C_{\text{out}} = \alpha \cdot C_1 + (1 - \alpha) \cdot C_2
+\]
+
+其中：
+- \( C_{\text{out}} \) 是混合后的颜色值。
+- \( C_1 \) 是前景图像的颜色值。
+- \( C_2 \) 是背景图像的颜色值。
+- \( \alpha \) 是前景图像的透明度。
+
+### 公式的详细解释
+
+1. **前景贡献**：\( \alpha \cdot C_1 \) 表示前景图像对最终颜色的贡献。透明度 \( \alpha \) 越大，前景图像的颜色对最终结果的影响越大。
+
+2. **背景贡献**：\( (1 - \alpha) \cdot C_2 \) 表示背景图像对最终颜色的贡献。透明度 \( \alpha \) 越小，背景图像的颜色对最终结果的影响越大。
+
+3. **混合结果**：将前景和背景的贡献相加，得到最终的混合颜色 \( C_{\text{out}} \)。
+
+
+
+
+
+在针孔相机模型中，三维空间中的点 \( P = (X, Y, Z) \) 投影到二维图像平面上的坐标 \( p = (x, y) \) 可以通过以下公式计算：
+
+\[ x = f_x \frac{X}{Z} + c_x \]
+\[ y = f_y \frac{Y}{Z} + c_y \]
+
+这里，\(f_x\) 和 \(f_y\) 分别是图像平面在x轴和y轴方向上的焦距，而 \(c_x\) 和 \(c_y\) 是主点偏移量（通常位于图像中心）。如果我们忽略主点偏移量（即假设 \(c_x = c_y = 0\)），则上述方程简化为：
+
+\[ x = f_x \frac{X}{Z} \]
+\[ y = f_y \frac{Y}{Z} \]
+
+现在，如果你想要构建一个描述这些投影方程相对于点 \(P\) 的变化率（即其梯度）的雅可比矩阵，你就会得到类似下面的形式：
+
+\[ J = \begin{bmatrix}
+\frac{\partial x}{\partial X} & \frac{\partial x}{\partial Y} & \frac{\partial x}{\partial Z} \\
+\frac{\partial y}{\partial X} & \frac{\partial y}{\partial Y} & \frac{\partial y}{\partial Z} \\
+0 & 0 & 0
+\end{bmatrix} \]
+
+根据上面简化的投影方程，我们可以计算出各个偏导数：
+
+- 对于 \(x\) 方向：\[ \frac{\partial x}{\partial X} = \frac{f_x}{Z}, \quad \frac{\partial x}{\partial Y} = 0, \quad \frac{\partial x}{\partial Z} = -\frac{f_x X}{Z^2} \]
+- 对于 \(y\) 方向：\[ \frac{\partial y}{\partial X} = 0, \quad \frac{\partial y}{\partial Y} = \frac{f_y}{Z}, \quad \frac{\partial y}{\partial Z} = -\frac{f_y Y}{Z^2} \]
+
+
+
+这段代码计算的是损失函数相对于2D协方差矩阵各元素的梯度，给定损失函数相对于该协方差矩阵逆矩阵（即共轭矩阵）的梯度。具体来说，它使用链式法则来从损失关于逆协方差矩阵的梯度推导出损失关于原始协方差矩阵元素的梯度。
+
+### 背景知识
+
+对于一个2x2的协方差矩阵 \(\Sigma\) 和其逆矩阵（共轭矩阵）\(\Sigma^{-1}\)，我们有：
+
+\[
+\Sigma = \begin{pmatrix} a & b \\ b & c \end{pmatrix}, \quad \Sigma^{-1} = \frac{1}{ac - b^2} \begin{pmatrix} c & -b \\ -b & a \end{pmatrix}
+\]
+
+其中，\(a\), \(b\), \(c\) 分别是协方差矩阵的元素，而 \(ac - b^2\) 是其行列式（记作 `denom`）。通过链式法则，可以从损失函数关于逆矩阵的梯度推导出关于原矩阵的梯度。
+
+### 代码解析
+
+```cpp
+dL_da = denom2inv * (-c * c * dL_dconic.x + 2 * b * c * dL_dconic.y + (denom - a * c) * dL_dconic.z);
+dL_dc = denom2inv * (-a * a * dL_dconic.z + 2 * a * b * dL_dconic.y + (denom - a * c) * dL_dconic.x);
+dL_db = denom2inv * 2 * (b * c * dL_dconic.x - (denom + 2 * b * b) * dL_dconic.y + a * b * dL_dconic.z);
+```
+
+- **`dL_dconic.x`, `dL_dconic.y`, `dL_dconic.z`**: 分别代表损失函数相对于逆协方差矩阵各元素的梯度。
+  
+- **`denom2inv`**: 行列式的平方加上一个小常数（防止除以零错误）的倒数，用于数值稳定性的保证。
+
+#### 梯度公式解释
+
+1. **`dL_da`**:
+   \[
+   \frac{\partial L}{\partial a} = \text{denom2inv} \times (-c^2 \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{11}} + 2bc \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{12}} + (\text{denom} - ac) \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{22}})
+   \]
+   这里，\(\frac{\partial L}{\partial (\Sigma^{-1})_{ij}}\) 分别对应于 `dL_dconic.x`, `dL_dconic.y`, `dL_dconic.z`。
+
+2. **`dL_dc`**:
+   \[
+   \frac{\partial L}{\partial c} = \text{denom2inv} \times (-a^2 \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{22}} + 2ab \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{12}} + (\text{denom} - ac) \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{11}})
+   \]
+
+3. **`dL_db`**:
+   \[
+   \frac{\partial L}{\partial b} = 2 \times \text{denom2inv} \times (bc \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{11}} - (\text{denom} + 2b^2) \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{12}} + ab \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{22}})
+   \]
+
+### 链式法则的应用
+
+这些公式的推导基于链式法则，考虑了损失函数如何通过逆协方差矩阵影响原始协方差矩阵的各个元素。具体来说：
+
+- **`denom2inv`**: 作为分母的一部分，确保了数值稳定性，并且正确地缩放了梯度。
+- **各项乘积和加权求和**: 反映了损失函数关于逆协方差矩阵的梯度如何传播到原始协方差矩阵的不同元素上。
+
+
+这段代码是在计算损失函数 \(L\) 关于3D协方差矩阵（记作 \(V_{rk}\)）各个元素的梯度，给定损失函数关于2D协方差矩阵的梯度。具体来说，它利用了链式法则，通过已知的2D协方差矩阵的梯度来推导出原始3D协方差矩阵的梯度。
+
+### 背景
+
+在3D到2D投影的过程中，3D协方差矩阵 \(V_{rk}\) 通过一个变换矩阵 \(T\) 投影到2D空间中形成2D协方差矩阵 \(cov_{2D}\)：
+
+\[
+cov_{2D} = T^T \cdot V_{rk}^T \cdot T
+\]
+
+其中，\(T\) 是从3D空间到2D屏幕空间的变换矩阵。
+
+### 计算梯度
+
+#### 对角元素的梯度
+
+```cpp
+dL_dcov[6 * idx + 0] = (T[0][0] * T[0][0] * dL_da + T[0][0] * T[1][0] * dL_db + T[1][0] * T[1][0] * dL_dc);
+dL_dcov[6 * idx + 3] = (T[0][1] * T[0][1] * dL_da + T[0][1] * T[1][1] * dL_db + T[1][1] * T[1][1] * dL_dc);
+dL_dcov[6 * idx + 5] = (T[0][2] * T[0][2] * dL_da + T[0][2] * T[1][2] * dL_db + T[1][2] * T[1][2] * dL_dc);
+```
+
+这些表达式分别计算了 \(V_{rk}\) 的对角元素 \(V_{rk}[0][0]\), \(V_{rk}[1][1]\), 和 \(V_{rk}[2][2]\) 的梯度。
+
+- **公式解释**：
+  - \(dL_dcov[6 * idx + 0]\): 计算了 \(V_{rk}[0][0]\) 的梯度。
+    \[
+    \frac{\partial L}{\partial V_{rk}[0][0]} = T[0][0]^2 \cdot \frac{\partial L}{\partial a} + T[0][0] \cdot T[1][0] \cdot \frac{\partial L}{\partial b} + T[1][0]^2 \cdot \frac{\partial L}{\partial c}
+    \]
+  - \(dL_dcov[6 * idx + 3]\): 计算了 \(V_{rk}[1][1]\) 的梯度。
+    \[
+    \frac{\partial L}{\partial V_{rk}[1][1]} = T[0][1]^2 \cdot \frac{\partial L}{\partial a} + T[0][1] \cdot T[1][1] \cdot \frac{\partial L}{\partial b} + T[1][1]^2 \cdot \frac{\partial L}{\partial c}
+    \]
+  - \(dL_dcov[6 * idx + 5]\): 计算了 \(V_{rk}[2][2]\) 的梯度。
+    \[
+    \frac{\partial L}{\partial V_{rk}[2][2]} = T[0][2]^2 \cdot \frac{\partial L}{\partial a} + T[0][2] \cdot T[1][2] \cdot \frac{\partial L}{\partial b} + T[1][2]^2 \cdot \frac{\partial L}{\partial c}
+    \]
+
+#### 非对角元素的梯度
+
+```cpp
+dL_dcov[6 * idx + 1] = 2 * T[0][0] * T[0][1] * dL_da + (T[0][0] * T[1][1] + T[0][1] * T[1][0]) * dL_db + 2 * T[1][0] * T[1][1] * dL_dc;
+dL_dcov[6 * idx + 2] = 2 * T[0][0] * T[0][2] * dL_da + (T[0][0] * T[1][2] + T[0][2] * T[1][0]) * dL_db + 2 * T[1][0] * T[1][2] * dL_dc;
+dL_dcov[6 * idx + 4] = 2 * T[0][2] * T[0][1] * dL_da + (T[0][1] * T[1][2] + T[0][2] * T[1][1]) * dL_db + 2 * T[1][1] * T[1][2] * dL_dc;
+```
+
+这些表达式分别计算了 \(V_{rk}\) 的非对角元素 \(V_{rk}[0][1]\), \(V_{rk}[0][2]\), 和 \(V_{rk}[1][2]\) 的梯度。
+
+- **公式解释**：
+  - \(dL_dcov[6 * idx + 1]\): 计算了 \(V_{rk}[0][1]\) 的梯度。
+    \[
+    \frac{\partial L}{\partial V_{rk}[0][1]} = 2 \cdot T[0][0] \cdot T[0][1] \cdot \frac{\partial L}{\partial a} + (T[0][0] \cdot T[1][1] + T[0][1] \cdot T[1][0]) \cdot \frac{\partial L}{\partial b} + 2 \cdot T[1][0] \cdot T[1][1] \cdot \frac{\partial L}{\partial c}
+    \]
+  - \(dL_dcov[6 * idx + 2]\): 计算了 \(V_{rk}[0][2]\) 的梯度。
+    \[
+    \frac{\partial L}{\partial V_{rk}[0][2]} = 2 \cdot T[0][0] \cdot T[0][2] \cdot \frac{\partial L}{\partial a} + (T[0][0] \cdot T[1][2] + T[0][2] \cdot T[1][0]) \cdot \frac{\partial L}{\partial b} + 2 \cdot T[1][0] \cdot T[1][2] \cdot \frac{\partial L}{\partial c}
+    \]
+  - \(dL_dcov[6 * idx + 4]\): 计算了 \(V_{rk}[1][2]\) 的梯度。
+    \[
+    \frac{\partial L}{\partial V_{rk}[1][2]} = 2 \cdot T[0][2] \cdot T[0][1] \cdot \frac{\partial L}{\partial a} + (T[0][1] \cdot T[1][2] + T[0][2] \cdot T[1][1]) \cdot \frac{\partial L}{\partial b} + 2 \cdot T[1][1] \cdot T[1][2] \cdot \frac{\partial L}{\partial c}
+    \]
+
+### 链式法则的应用
+
+上述公式的推导基于链式法则，考虑了损失函数 \(L\) 如何通过2D协方差矩阵 \(cov_{2D}\) 影响原始3D协方差矩阵 \(V_{rk}\) 的各个元素。具体来说，每个 \(V_{rk}\) 元素的梯度是通过对 \(cov_{2D}\) 各个元素的梯度进行加权求和得到的，权重由变换矩阵 \(T\) 的元素决定。
+
+
+这段代码计算的是损失函数 \(L\) 关于变换矩阵 \(T\) 的梯度。具体来说，它基于已知的损失函数关于2D协方差矩阵（\(cov_{2D}\)）的梯度，通过链式法则推导出损失函数关于中间矩阵 \(T\) 各元素的梯度。
+
+### 背景
+
+在3D到2D投影的过程中，3D协方差矩阵 \(V_{rk}\) 通过一个变换矩阵 \(T\) 投影到2D空间中形成2D协方差矩阵 \(cov_{2D}\)：
+
+\[
+cov_{2D} = T^T \cdot V_{rk}^T \cdot T
+\]
+
+其中，\(T\) 是从3D空间到2D屏幕空间的变换矩阵。为了优化模型参数，我们需要计算损失函数 \(L\) 关于 \(T\) 各个元素的梯度。
+
+### 计算梯度
+
+#### 公式解析
+
+```cpp
+float dL_dT00 = 2 * (T[0][0] * Vrk[0][0] + T[0][1] * Vrk[0][1] + T[0][2] * Vrk[0][2]) * dL_da +
+               (T[1][0] * Vrk[0][0] + T[1][1] * Vrk[0][1] + T[1][2] * Vrk[0][2]) * dL_db;
+float dL_dT01 = 2 * (T[0][0] * Vrk[1][0] + T[0][1] * Vrk[1][1] + T[0][2] * Vrk[1][2]) * dL_da +
+               (T[1][0] * Vrk[1][0] + T[1][1] * Vrk[1][1] + T[1][2] * Vrk[1][2]) * dL_db;
+float dL_dT02 = 2 * (T[0][0] * Vrk[2][0] + T[0][1] * Vrk[2][1] + T[0][2] * Vrk[2][2]) * dL_da +
+               (T[1][0] * Vrk[2][0] + T[1][1] * Vrk[2][1] + T[1][2] * Vrk[2][2]) * dL_db;
+
+float dL_dT10 = 2 * (T[1][0] * Vrk[0][0] + T[1][1] * Vrk[0][1] + T[1][2] * Vrk[0][2]) * dL_dc +
+               (T[0][0] * Vrk[0][0] + T[0][1] * Vrk[0][1] + T[0][2] * Vrk[0][2]) * dL_db;
+float dL_dT11 = 2 * (T[1][0] * Vrk[1][0] + T[1][1] * Vrk[1][1] + T[1][2] * Vrk[1][2]) * dL_dc +
+               (T[0][0] * Vrk[1][0] + T[0][1] * Vrk[1][1] + T[0][2] * Vrk[1][2]) * dL_db;
+float dL_dT12 = 2 * (T[1][0] * Vrk[2][0] + T[1][1] * Vrk[2][1] + T[1][2] * Vrk[2][2]) * dL_dc +
+               (T[0][0] * Vrk[2][0] + T[0][1] * Vrk[2][1] + T[0][2] * Vrk[2][2]) * dL_db;
+```
+
+- **`dL_dT00`, `dL_dT01`, `dL_dT02`**: 分别是 \(T\) 第一行各元素相对于损失函数的梯度。
+- **`dL_dT10`, `dL_dT11`, `dL_dT12`**: 分别是 \(T\) 第二行各元素相对于损失函数的梯度。
+
+#### 链式法则的应用
+
+这些公式利用了链式法则来计算损失函数 \(L\) 关于 \(T\) 各元素的梯度。具体来说：
+
+1. **对角项的贡献**：
+   - 对于 \(dL_dT00\)、\(dL_dT01\) 和 \(dL_dT02\)，它们考虑了 \(T\) 第一行与 \(V_{rk}\) 相乘后对 \(cov_{2D}\) 的影响，并进一步乘以 \(dL_da\) 或 \(dL_db\)。
+   - 例如，对于 \(dL_dT00\)：
+     \[
+     \frac{\partial L}{\partial T[0][0]} = 2 \cdot \left(T[0][0] \cdot V_{rk}[0][0] + T[0][1] \cdot V_{rk}[0][1] + T[0][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial a} + \left(T[1][0] \cdot V_{rk}[0][0] + T[1][1] \cdot V_{rk}[0][1] + T[1][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial b}
+     \]
+
+2. **非对角项的贡献**：
+   - 对于 \(dL_dT10\)、\(dL_dT11\) 和 \(dL_dT12\)，它们考虑了 \(T\) 第二行与 \(V_{rk}\) 相乘后对 \(cov_{2D}\) 的影响，并进一步乘以 \(dL_dc\) 或 \(dL_db\)。
+   - 例如，对于 \(dL_dT10\)：
+     \[
+     \frac{\partial L}{\partial T[1][0]} = 2 \cdot \left(T[1][0] \cdot V_{rk}[0][0] + T[1][1] \cdot V_{rk}[0][1] + T[1][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial c} + \left(T[0][0] \cdot V_{rk}[0][0] + T[0][1] \cdot V_{rk}[0][1] + T[0][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial b}
+     \]
+
+
+$$ dl/dx = dl/dl02 * dl02/dx $$
+
+
+为了详细解释如何计算损失函数 \(L\) 关于3D均值 \(m = (m_x, m_y, m_z)\) 的梯度，我们需要从透视投影的基本原理出发，并使用链式法则来推导这些偏导数。
+
+### 1. 透视投影变换
+
+给定一个3D点 \(m = (m_x, m_y, m_z)\)，其齐次坐标为 \([m_x, m_y, m_z, 1]\)。应用4x4的透视投影矩阵 `proj` 后，得到新的齐次坐标：
+
+\[ 
+\text{m\_hom} = \text{proj} \times [m_x, m_y, m_z, 1]^T 
+\]
+
+其中，`proj` 是一个4x4的投影矩阵。为了获得2D屏幕坐标，我们需要进行透视除法（即除以第四个分量 \(w\)）：
+
+\[ 
+x' = \frac{\text{m\_hom}_x}{\text{m\_hom}_w}, \quad y' = \frac{\text{m\_hom}_y}{\text{m\_hom}_w}
+\]
+
+假设 `proj` 矩阵的形式如下：
+```
+proj = | p00 p01 p02 p03 |
+       | p10 p11 p12 p13 |
+       | p20 p21 p22 p23 |
+       | p30 p31 p32 p33 |
+```
+
+则有：
+\[ 
+\text{m\_hom}_x = p00 \cdot m_x + p01 \cdot m_y + p02 \cdot m_z + p03
+\]
+\[ 
+\text{m\_hom}_y = p10 \cdot m_x + p11 \cdot m_y + p12 \cdot m_z + p13
+\]
+\[ 
+\text{m\_hom}_z = p20 \cdot m_x + p21 \cdot m_y + p22 \cdot m_z + p23
+\]
+\[ 
+\text{m\_hom}_w = p30 \cdot m_x + p31 \cdot m_y + p32 \cdot m_z + p33
+\]
+
+然后，我们进行透视除法：
+\[ 
+x' = \frac{\text{m\_hom}_x}{\text{m\_hom}_w}, \quad y' = \frac{\text{m\_hom}_y}{\text{m\_hom}_w}
+\]
+
+### 2. 计算偏导数
+
+为了计算损失函数 \(L\) 关于3D均值 \(m\) 的梯度，我们需要首先计算 \(x'\) 和 \(y'\) 对 \(m_x, m_y, m_z\) 的偏导数。
+
+#### 对 \(x'\) 的偏导数
+
+\[ 
+\frac{\partial x'}{\partial m_i} = \frac{\partial}{\partial m_i} \left( \frac{\text{m\_hom}_x}{\text{m\_hom}_w} \right)
+\]
+
+使用商规则：
+\[ 
+\frac{\partial x'}{\partial m_i} = \frac{\text{m\_hom}_w \cdot \frac{\partial \text{m\_hom}_x}{\partial m_i} - \text{m\_hom}_x \cdot \frac{\partial \text{m\_hom}_w}{\partial m_i}}{\text{m\_hom}_w^2}
+\]
+
+具体到每个维度：
+
+- **对 \(m_x\) 的偏导数**：
+  \[
+  \frac{\partial x'}{\partial m_x} = \frac{\text{m\_hom}_w \cdot p00 - \text{m\_hom}_x \cdot p30}{\text{m\_hom}_w^2} = \frac{p00}{\text{m\_hom}_w} - \frac{p30 \cdot \text{m\_hom}_x}{\text{m\_hom}_w^2}
+  \]
+
+- **对 \(m_y\) 的偏导数**：
+  \[
+  \frac{\partial x'}{\partial m_y} = \frac{\text{m\_hom}_w \cdot p01 - \text{m\_hom}_x \cdot p31}{\text{m\_hom}_w^2} = \frac{p01}{\text{m\_hom}_w} - \frac{p31 \cdot \text{m\_hom}_x}{\text{m\_hom}_w^2}
+  \]
+
+- **对 \(m_z\) 的偏导数**：
+  \[
+  \frac{\partial x'}{\partial m_z} = \frac{\text{m\_hom}_w \cdot p02 - \text{m\_hom}_x \cdot p32}{\text{m\_hom}_w^2} = \frac{p02}{\text{m\_hom}_w} - \frac{p32 \cdot \text{m\_hom}_x}{\text{m\_hom}_w^2}
+  \]
+
+#### 对 \(y'\) 的偏导数
+
+类似地，对于 \(y'\)：
+
+\[ 
+\frac{\partial y'}{\partial m_i} = \frac{\partial}{\partial m_i} \left( \frac{\text{m\_hom}_y}{\text{m\_hom}_w} \right)
+\]
+
+使用商规则：
+\[ 
+\frac{\partial y'}{\partial m_i} = \frac{\text{m\_hom}_w \cdot \frac{\partial \text{m\_hom}_y}{\partial m_i} - \text{m\_hom}_y \cdot \frac{\partial \text{m\_hom}_w}{\partial m_i}}{\text{m\_hom}_w^2}
+\]
+
+具体到每个维度：
+
+- **对 \(m_x\) 的偏导数**：
+  \[
+  \frac{\partial y'}{\partial m_x} = \frac{\text{m\_hom}_w \cdot p10 - \text{m\_hom}_y \cdot p30}{\text{m\_hom}_w^2} = \frac{p10}{\text{m\_hom}_w} - \frac{p30 \cdot \text{m\_hom}_y}{\text{m\_hom}_w^2}
+  \]
+
+- **对 \(m_y\) 的偏导数**：
+  \[
+  \frac{\partial y'}{\partial m_y} = \frac{\text{m\_hom}_w \cdot p11 - \text{m\_hom}_y \cdot p31}{\text{m\_hom}_w^2} = \frac{p11}{\text{m\_hom}_w} - \frac{p31 \cdot \text{m\_hom}_y}{\text{m\_hom}_w^2}
+  \]
+
+- **对 \(m_z\) 的偏导数**：
+  \[
+  \frac{\partial y'}{\partial m_z} = \frac{\text{m\_hom}_w \cdot p12 - \text{m\_hom}_y \cdot p32}{\text{m\_hom}_w^2} = \frac{p12}{\text{m\_hom}_w} - \frac{p32 \cdot \text{m\_hom}_y}{\text{m\_hom}_w^2}
+  \]
+
+### 3. 使用链式法则计算梯度
+
+现在我们有了所有需要的偏导数，可以使用链式法则来计算损失函数 \(L\) 关于3D均值 \(m\) 的梯度。
+
+假设已知损失函数关于2D投影点的梯度 `dL_dmean2D[idx]`，我们可以将其反向传播回3D空间中的均值 \(m\)。
+
+对于每个维度 \(i \in \{x, y, z\}\)，我们有：
+
+\[
+\frac{\partial L}{\partial m_i} = \sum_{j \in \{x', y'\}} \left( \frac{\partial x'}{\partial m_i} \cdot \frac{\partial L}{\partial x'} + \frac{\partial y'}{\partial m_i} \cdot \frac{\partial L}{\partial y'} \right)
+\]
+
+具体实现如下：
+
+```cpp
+float mul1 = (proj[0] * m.x + proj[4] * m.y + proj[8] * m.z + proj[12]) * m_w * m_w;
+float mul2 = (proj[1] * m.x + proj[5] * m.y + proj[9] * m.z + proj[13]) * m_w * m_w;
+
+dL_dmean.x = (proj[0] * m_w - proj[3] * mul1) * dL_dmean2D[idx].x + (proj[1] * m_w - proj[3] * mul2) * dL_dmean2D[idx].y;
+dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
+dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
+```
+
+### 具体解释
+
+1. **`mul1` 和 `mul2`**：
+   - 这些中间变量分别代表了与 \(x'\) 和 \(y'\) 投影相关的线性组合项乘以 \(m_w^2\)。
+   - `mul1` 对应于 \(x'\) 方向的线性组合：\(mul1 = (\text{proj}_{00} \cdot m_x + \text{proj}_{04} \cdot m_y + \text{proj}_{08} \cdot m_z + \text{proj}_{12}) \cdot m_w^2\)
+   - `mul2` 对应于 \(y'\) 方向的线性组合：\(mul2 = (\text{proj}_{01} \cdot m_x + \text{proj}_{05} \cdot m_y + \text{proj}_{09} \cdot m_z + \text{proj}_{13}) \cdot m_w^2\)
+
+2. **`dL_dmean.x`**：
+   - 计算了损失函数关于 \(m_x\) 的梯度，考虑了 \(x'\) 和 \(y'\) 方向的影响。
+   - `(proj[0] * m_w - proj[3] * mul1)` 反映了 \(x'\) 方向上 \(m_x\) 的变化对最终损失函数的影响。
+   - `(proj[1] * m_w - proj[3] * mul2)` 反映了 \(y'\) 方向上 \(m_x\) 的变化对最终损失函数的影响。
+
+3. **`dL_dmean.y` 和 `dL_dmean.z`**：
+   - 类似地，它们分别计算了损失函数关于 \(m_y\) 和 \(m_z\) 的梯度，考虑了 \(x'\) 和 \(y'\) 方向上的影响。
+
+通过这种方式，代码有效地将损失函数关于2D投影点的梯度反向传播回3D空间中的均值 \(m\)，使得模型能够更好地拟合观测数据。这种方法对于涉及复杂3D-2D映射问题的应用至关重要，如计算机视觉、增强现实或机器学习中的应用。
