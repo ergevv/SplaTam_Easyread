@@ -191,7 +191,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 
 	// Perform near culling, quit if outside.
 	float3 p_view;
-	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view)) //获取当前帧裁剪空间，且得大于0.2
+	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view)) //得大于0.2
 		return;
 
 	// Transform point by projecting
@@ -210,12 +210,12 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	}
 	else
 	{
-		computeCov3D(scales[idx], scale_modifier, rotations[idx], cov3Ds + idx * 6);
+		computeCov3D(scales[idx], scale_modifier, rotations[idx], cov3Ds + idx * 6); //相机坐标系下的协方差
 		cov3D = cov3Ds + idx * 6;
 	}
 
 	// Compute 2D screen-space covariance matrix，3维协方差投影到2维空间后的协方差变化
-	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
+	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix); //NDC下的协方差
 
 	// Invert covariance (EWA algorithm)
 	float det = (cov.x * cov.z - cov.y * cov.y);
@@ -231,7 +231,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	float mid = 0.5f * (cov.x + cov.z);
 	float lambda1 = mid + sqrt(max(0.1f, mid * mid - det)); //计算特征值
 	float lambda2 = mid - sqrt(max(0.1f, mid * mid - det));
-	float my_radius = ceil(3.f * sqrt(max(lambda1, lambda2))); //计算高斯分布的影响半径，它是最大特征值的3倍标准差（假设高斯分布大约在3个标准差范围内包含99.7%的数据点）。
+	float my_radius = ceil(3.f * sqrt(max(lambda1, lambda2))); //计算高斯分布的影响半径，它是最大特征值的3倍标准差
 	float2 point_image = { ndc2Pix(p_proj.x, W), ndc2Pix(p_proj.y, H) }; //将归一化设备坐标（NDC）转换为图像坐标（像素坐标）。ndc2Pix 函数通常会考虑视口尺寸（W 和 H），将 NDC 坐标映射到实际的像素位置。
 	uint2 rect_min, rect_max;
 	getRect(point_image, my_radius, rect_min, rect_max, grid);  //计算点加上半径后在grid的位置
@@ -292,7 +292,7 @@ renderCUDA(
 	bool done = !inside;
 
 	// Load start/end range of IDs to process in bit sorted list.
-	uint2 range = ranges[block.group_index().y * horizontal_blocks + block.group_index().x];
+	uint2 range = ranges[block.group_index().y * horizontal_blocks + block.group_index().x];//获取当前瓦片在point_list_keys的位置
 	const int rounds = ((range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE);//算需要处理的轮次数
 	int toDo = range.y - range.x;//计算总共需要处理的高斯分布数量
 
@@ -328,7 +328,7 @@ renderCUDA(
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
 			collected_depth[block.thread_rank()] = depth[coll_id];
 		}
-		block.sync();  // Wait for all threads to finish，等待这个线程块所有的线程都完成
+		block.sync();  // Wait for all threads to finish，等待这个线程块所有的线程都完成，其他线程也会往collected_id填充数据，到时候大家共享，所以progress每次增加BLOCK_SIZE，每BLOCK_SIZE个瓦片填充一轮
 
 		// Iterate over current batch
 		for (int j = 0; !done && j < min(BLOCK_SIZE, toDo); j++)//有多个高斯点覆盖到这个像素，因此需要遍历
@@ -339,9 +339,9 @@ renderCUDA(
 			// Resample using conic matrix (cf. "Surface 
 			// Splatting" by Zwicker et al., 2001)
 			float2 xy = collected_xy[j];
-			float2 d = { xy.x - pixf.x, xy.y - pixf.y };//计算当前像素到高斯点的距离，在ndc转pix时，减1的目的是什么
+			float2 d = { xy.x - pixf.x, xy.y - pixf.y };//计算当前像素到高斯点的距离，
 			float4 con_o = collected_conic_opacity[j];
-			float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y; //带协方差的高斯分布的指数部分
+			float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y; //带协方差的高斯分布的指数部分，
 			if (power > 0.0f) //指数部分应该小于0
 				continue;
 
@@ -349,7 +349,7 @@ renderCUDA(
 			// Obtain alpha by multiplying with Gaussian opacity
 			// and its exponential falloff from mean.
 			// Avoid numerical instabilities (see paper appendix). 
-			float alpha = min(0.99f, con_o.w * exp(power));  //不考虑高斯函数的系数，如果考虑这个系数，其实每一层这个系数的值都一样，只与协方差有关，因此这个系数可以同时控制每层的不透明度的变化幅度，而是乘不透明度，根据高斯分布，计算当前位置不透明度
+			float alpha = min(0.99f, con_o.w * exp(power));  //不考虑高斯函数的系数，如果考虑这个系数，其实每一层这个系数的值都一样，只与协方差有关，因此这个系数可以同时控制每层的不透明度的变化幅度，而是乘不透明度，根据高斯分布，计算当前位置不透明度。因为con_o.w（即opacity）是可学习的参数，这个常量可以包括进去。
 			if (alpha < 1.0f / 255.0f)//值太小，无贡献度
 				continue;
 			// 光线穿过多个半透明层（例如玻璃、雾气等）。每一层都会吸收一部分光线，并且让剩余的光线通过。如果一个层的不透明度为 alpha，那么它会阻挡 alpha 比例的光线，并允许 (1 - alpha) 比例的光线通过。

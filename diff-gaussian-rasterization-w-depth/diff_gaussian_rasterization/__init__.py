@@ -125,7 +125,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_sh, grad_scales, grad_rotations = _C.rasterize_gaussians_backward(*args)        
 
         import pydevd
-        pydevd.settrace(suspend=False, trace_only_current_thread=True)
+        pydevd.settrace(suspend=False, trace_only_current_thread=True) #强制断点生效
 
         grads = (
             grad_means3D,

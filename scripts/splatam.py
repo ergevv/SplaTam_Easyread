@@ -251,7 +251,7 @@ def get_loss(params, curr_data, variables, iter_time_idx, loss_weights, use_sil_
         # 单纯的mapping则只需要优化高斯的梯度
         else:
             # Get current frame Gaussians, where only the Gaussians get gradient
-            transformed_pts = transform_to_frame(params, iter_time_idx,
+            transformed_pts = transform_to_frame(params, iter_time_idx,  #得到相机坐标系下的位置
                                                  gaussians_grad=True,
                                                  camera_grad=False)
     else:

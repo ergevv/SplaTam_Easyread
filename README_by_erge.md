@@ -65,6 +65,54 @@ python viz_scripts/online_recon.py configs/replica/splatam.py
 \[ \frac{(x\cos(\theta) + y\sin(\theta))^2}{a^2} + \frac{(-x\sin(\theta) + y\cos(\theta))^2}{b^2} = 1 \]
 其中 \(a\) 和 \(b\) 分别是椭圆的半长轴和半短轴长度，\(\theta\) 是椭圆的旋转角度。
 
+
+
+
+**(1) 关于二维高斯分布和椭圆的关系，我们可以这么考虑：**
+
+二维高斯分布的概率密度函数为
+
+\[
+p(\boldsymbol{x}) = \frac{1}{(2\pi)^{\frac{n}{2}}|\Sigma|^{\frac{1}{2}}} \exp\left\{-\frac{1}{2}(\boldsymbol{x}-\boldsymbol{\mu})^T\Sigma^{-1}(\boldsymbol{x}-\boldsymbol{\mu})\right\}
+\]
+
+其中 \(\boldsymbol{x}=(x,y)^T\)，\(\Sigma\) 为协方差矩阵，\(\boldsymbol{\mu}\) 为均值。考虑令 \(p(\boldsymbol{x})\) 等于一个常数，并令 \(\boldsymbol{u}=\boldsymbol{x}-\boldsymbol{\mu}\)，即
+
+\[
+\boldsymbol{u}^T\Sigma^{-1}\boldsymbol{u}=R^2
+\]
+
+其中 \(R^2\) 为常数。由于 \(\Sigma\) 是对称矩阵，一定存在正交矩阵 \(P\) 使得
+
+\[
+\Sigma=P^T\Lambda P
+\]
+
+其中 \(\Lambda=\text{diag}(\lambda_1,\lambda_2)\) 是由 \(\Sigma\) 的特征值组成的对角矩阵。带入概率密度函数，得
+
+\[
+\boldsymbol{u}^TP^T\Lambda^{-1}P\boldsymbol{u}=R^2
+\]
+
+令 \(\boldsymbol{v}=P\boldsymbol{u}\)（也就是相对 \(\boldsymbol{u}\) 坐标系旋转了一个角度），则
+
+\[
+\boldsymbol{v}^T\Lambda^{-1}\boldsymbol{v}=R^2
+\]
+
+即
+
+\[
+\frac{v_1^2}{\lambda_1 R^2} + \frac{v_2^2}{\lambda_2 R^2} = 1
+\]
+
+正好是一个长短轴分别为 \(\sqrt{\lambda_1}R\)、\(\sqrt{\lambda_2}R\) 的椭圆。令 \(R=3\) 就得到了代码中算 `my_radius` 的公式。
+
+
+
+
+
+
 3、高斯分布的性质：
 不证明给出结论（可参考https://zhuanlan.zhihu.com/p/666465701）：
 (1)高斯分布经仿射变换后仍是高斯分布
@@ -195,9 +243,69 @@ J =
 \end{bmatrix}
 $$
 
-Alpha Blending 是一种用于图像合成和透明度处理的常用技术，广泛应用于计算机图形学、图像处理和视频处理等领域。其基本公式用于将两个图像（或图层）按照一定的透明度进行混合。
 
-### Alpha Blending 的基本公式
+
+
+
+
+
+在针孔相机模型中，三维空间中的点 \( P = (X, Y, Z) \) 投影到二维图像平面上的坐标 \( p = (x, y) \) 可以通过以下公式计算：
+
+\[ x = f_x \frac{X}{Z} + c_x \]
+\[ y = f_y \frac{Y}{Z} + c_y \]
+
+这里，\(f_x\) 和 \(f_y\) 分别是图像平面在x轴和y轴方向上的焦距，而 \(c_x\) 和 \(c_y\) 是主点偏移量（通常位于图像中心）。如果我们忽略主点偏移量（即假设 \(c_x = c_y = 0\)），则上述方程简化为：
+
+\[ x = f_x \frac{X}{Z} \]
+\[ y = f_y \frac{Y}{Z} \]
+
+如果构建一个描述这些投影方程相对于点 \(P\) 的变化率（即其梯度）的雅可比矩阵：
+
+\[ J = \begin{bmatrix}
+\frac{\partial x}{\partial X} & \frac{\partial x}{\partial Y} & \frac{\partial x}{\partial Z} \\
+\frac{\partial y}{\partial X} & \frac{\partial y}{\partial Y} & \frac{\partial y}{\partial Z} \\
+0 & 0 & 0
+\end{bmatrix} \]
+
+根据上面简化的投影方程，我们可以计算出各个偏导数：
+
+- 对于 \(x\) 方向：\[ \frac{\partial x}{\partial X} = \frac{f_x}{Z}, \quad \frac{\partial x}{\partial Y} = 0, \quad \frac{\partial x}{\partial Z} = -\frac{f_x X}{Z^2} \]
+- 对于 \(y\) 方向：\[ \frac{\partial y}{\partial X} = 0, \quad \frac{\partial y}{\partial Y} = \frac{f_y}{Z}, \quad \frac{\partial y}{\partial Z} = -\frac{f_y Y}{Z^2} \]
+
+
+
+这段代码计算的是损失函数相对于2D协方差矩阵各元素的梯度，给定损失函数相对于该协方差矩阵逆矩阵（即共轭矩阵）的梯度。具体来说，它使用链式法则来从损失关于逆协方差矩阵的梯度推导出损失关于原始协方差矩阵元素的梯度。
+
+## 前向传播：
+
+\[ f(\mathbf{x}|\boldsymbol{\mu},\boldsymbol{\Sigma}) = \frac{1}{(2\pi)^{k/2}|\boldsymbol{\Sigma}|^{1/2}} \exp\left(-\frac{1}{2}(\mathbf{x}-\boldsymbol{\mu})^\top\boldsymbol{\Sigma}^{-1}(\mathbf{x}-\boldsymbol{\mu})\right) \]
+
+$$ power = \left(-\frac{1}{2}(\mathbf{x}-\boldsymbol{\mu})^\top\boldsymbol{\Sigma}^{-1}(\mathbf{x}-\boldsymbol{\mu})\right)$$
+
+$$\alpha = \min(0.99, opacity * \exp(power)); $$
+
+$$ T_{test} = T * (1 - \alpha) $$
+这里T是当前层可用的透明度，$T_{test}$是经过当前层后留给的下一层的透明度。
+光线穿过多个半透明层（例如玻璃、雾气等）。每一层都会吸收一部分光线，并且让剩余的光线通过。如果一个层的不透明度为 $\alpha$，那么它会阻挡 $\alpha$ 比例的光线，并允许 $(1 - \alpha) $比例的光线通过。
+当光线进入第一层时，它保留了 $(1 - \alpha_1)$ 的比例。
+然后当这部分光线进入第二层时，它再次被削减，只保留 $(1 - \alpha_2)$ 的比例。
+因此，经过两层后的光线量是原始光线量乘以 $(1 - \alpha_1) * (1 - \alpha_2)$。
+
+$$ color = color + color *\alpha *  T $$
+
+
+## 反向传播：
+### 已知：
+使用pytorch自动求导得到了损失值对颜色的梯度：$\frac {dL}{dC}$
+
+
+#### 求取当前层透明度
+$$ T = T / (1 - \alpha) $$ 
+
+
+### Alpha Blending 
+
+Alpha Blending 是一种用于图像合成和透明度处理的常用技术，广泛应用于计算机图形学、图像处理和视频处理等领域。其基本公式用于将两个图像（或图层）按照一定的透明度进行混合。
 
 假设有两个图像 \( C_1 \) 和 \( C_2 \)，分别表示前景和背景图像的颜色值（通常为 RGB 颜色值）。\( \alpha \) 表示前景图像 \( C_1 \) 的透明度（alpha 值），取值范围为 \([0, 1]\)：
 
@@ -216,7 +324,6 @@ C_{\text{out}} = \alpha \cdot C_1 + (1 - \alpha) \cdot C_2
 - \( C_2 \) 是背景图像的颜色值。
 - \( \alpha \) 是前景图像的透明度。
 
-### 公式的详细解释
 
 1. **前景贡献**：\( \alpha \cdot C_1 \) 表示前景图像对最终颜色的贡献。透明度 \( \alpha \) 越大，前景图像的颜色对最终结果的影响越大。
 
@@ -225,20 +332,186 @@ C_{\text{out}} = \alpha \cdot C_1 + (1 - \alpha) \cdot C_2
 3. **混合结果**：将前景和背景的贡献相加，得到最终的混合颜色 \( C_{\text{out}} \)。
 
 
+#### 公式推导：
+1、$\frac {dL}{d\alpha}、\frac{\partial L}{\partial \boldsymbol{g}}$：
+
+使用Alpha Blending公式，设\(\boldsymbol{b}_i\)是第\(i\)个及其后的Gaussians渲染出来的颜色（三个通道），\(\boldsymbol{g}_i\)是第\(i\)个Gaussian的颜色，则有递推公式：
+
+\[
+\boldsymbol{b}_i = \alpha_i \boldsymbol{g}_i + (1 - \alpha_i) \boldsymbol{b}_{i+1}
+\]
+
+令\(T_i = (1 - \alpha_1)(1 - \alpha_2)\cdots(1 - \alpha_{i-1})\)为第\(i\)个Gaussian对像素点的透光率，\(\boldsymbol{C}\)是像素点的颜色，则有
+
+\[
+\frac{\partial L}{\partial \boldsymbol{b}_i} = \frac{\partial L}{\partial \boldsymbol{C}} \cdot \frac{\partial \boldsymbol{b}_1}{\partial \boldsymbol{b}_2} \cdot \frac{\partial \boldsymbol{b}_2}{\partial \boldsymbol{b}_3} \cdots \frac{\partial \boldsymbol{b}_{i-1}}{\partial \boldsymbol{b}_i}
+\]
+
+\[
+= \frac{\partial L}{\partial \boldsymbol{C}} \cdot (1 - \alpha_1)I \cdot (1 - \alpha_2)I \cdots (1 - \alpha_{i-1})I
+\]
+
+\[
+= T_i \frac{\partial L}{\partial \boldsymbol{C}}
+\]
+
+故
+
+\[
+\frac{\partial L}{\partial \alpha_i} = T_i \frac{\partial L}{\partial \boldsymbol{C}} (\boldsymbol{g}_i - \boldsymbol{b}_{i+1})
+\]
+
+\[
+\frac{\partial L}{\partial \boldsymbol{g}_i} = T_i \alpha_i \frac{\partial L}{\partial \boldsymbol{C}}
+\]
+
+2、$\frac{\partial L}{\partial \sigma} 、\frac{\partial L}{\partial G}$
+
+
+令 \(\alpha = \min(0.99, \sigma G)\)，其中 \(\sigma\) 是“opacity”，\(G\) 是正态分布给出的“exponential falloff”，则
+
+\[
+\frac{\partial L}{\partial \sigma} = G \frac{\partial L}{\partial \alpha}
+\]
+
+\[
+\frac{\partial L}{\partial G} = \sigma \frac{\partial L}{\partial \alpha}
+\]
 
 
 
-在针孔相机模型中，三维空间中的点 \( P = (X, Y, Z) \) 投影到二维图像平面上的坐标 \( p = (x, y) \) 可以通过以下公式计算：
+计算损失函数 \(L\) 对于不透明度 \(\sigma\) 和指数衰减因子 \(G\) 的偏导数。
 
-\[ x = f_x \frac{X}{Z} + c_x \]
-\[ y = f_y \frac{Y}{Z} + c_y \]
+3、计算损失函数对2D位置和2D协方差矩阵的逆的梯度
 
-这里，\(f_x\) 和 \(f_y\) 分别是图像平面在x轴和y轴方向上的焦距，而 \(c_x\) 和 \(c_y\) 是主点偏移量（通常位于图像中心）。如果我们忽略主点偏移量（即假设 \(c_x = c_y = 0\)），则上述方程简化为：
+\(G = \exp\left\{-\frac{1}{2} \boldsymbol{d}^T A \boldsymbol{d}\right\}\)，
+\(\boldsymbol{d} = \boldsymbol{\mu} - \boldsymbol{p}\)，
+其中 \(\boldsymbol{p}\) 为像素坐标，\(\boldsymbol{\mu}\) 为Gaussian中心的2D坐标，\(\boldsymbol{d}\) 为它们之间的位移向量，\(A\) 为椭圆二次型的矩阵，因此
 
-\[ x = f_x \frac{X}{Z} \]
-\[ y = f_y \frac{Y}{Z} \]
+\[
+\frac{\partial L}{\partial \boldsymbol{d}} = -\frac{1}{2} G \frac{\partial L}{\partial G} [ (A^T + A)\boldsymbol{d}]
+\]
 
-现在，如果你想要构建一个描述这些投影方程相对于点 \(P\) 的变化率（即其梯度）的雅可比矩阵，你就会得到类似下面的形式：
+\[
+\frac{\partial L}{\partial \boldsymbol{\mu}} = \frac{\partial L}{\partial \boldsymbol{d}}
+\]
+
+\[
+\frac{\partial L}{\partial A_{00}} = -\frac{1}{2} G \frac{\partial L}{\partial G} d_x^2
+\]
+
+\[
+\frac{\partial L}{\partial A_{11}} = -\frac{1}{2} G \frac{\partial L}{\partial G} d_y^2
+\]
+
+\[
+\frac{\partial L}{\partial A_{01}} = -\frac{1}{2} G \frac{\partial L}{\partial G} d_x d_y
+\]
+
+注意计算 \(\frac{\partial L}{\partial \boldsymbol{\mu}}\) 时要乘以像素坐标对像平面坐标的导。
+
+
+
+4、损失函数对2D协方差矩阵的梯度
+
+
+要理解 `dL_da` 的推导过程，我们需要从损失函数关于逆协方差矩阵（共轭矩阵）的梯度出发，通过链式法则推导出损失函数关于原始协方差矩阵元素的梯度。具体来说，我们要计算的是损失 \(L\) 关于协方差矩阵 \(\Sigma\) 中元素 \(a\) 的梯度，即 \(\frac{\partial L}{\partial a}\)。
+
+### 背景
+
+假设我们有一个2x2的协方差矩阵 \(\Sigma\) 和其逆矩阵（共轭矩阵）\(\Sigma^{-1}\)：
+
+\[
+\Sigma = \begin{pmatrix} a & b \\ b & c \end{pmatrix}, \quad \Sigma^{-1} = \frac{1}{ac - b^2} \begin{pmatrix} c & -b \\ -b & a \end{pmatrix}
+\]
+
+其中，\(ac - b^2\) 是行列式，记作 \(\text{denom}\)。
+
+### 目标
+
+我们的目标是根据损失函数关于 \(\Sigma^{-1}\) 的梯度来推导出损失函数关于 \(\Sigma\) 元素的梯度。
+
+### 推导过程
+
+#### 1. 计算 \(\frac{\partial \Sigma^{-1}}{\partial a}\)
+
+首先，我们需要计算 \(\Sigma^{-1}\) 对 \(a\) 的偏导数。由于 \(\Sigma^{-1}\) 可以写成：
+
+\[
+\Sigma^{-1} = \frac{1}{\text{denom}} \begin{pmatrix} c & -b \\ -b & a \end{pmatrix}
+\]
+
+我们可以写出 \(\Sigma^{-1}\) 各元素对 \(a\) 的偏导数：
+
+- \(\frac{\partial (\Sigma^{-1})_{11}}{\partial a} = \frac{\partial}{\partial a} \left( \frac{c}{\text{denom}} \right) = \frac{-c \cdot (-2b \frac{\partial b}{\partial a} + c)}{\text{denom}^2} = \frac{-c^2}{\text{denom}^2}\)
+- \(\frac{\partial (\Sigma^{-1})_{12}}{\partial a} = \frac{\partial}{\partial a} \left( \frac{-b}{\text{denom}} \right) = \frac{b \cdot (2b \frac{\partial b}{\partial a} - c)}{\text{denom}^2} = \frac{2bc}{\text{denom}^2}\)
+- \(\frac{\partial (\Sigma^{-1})_{22}}{\partial a} = \frac{\partial}{\partial a} \left( \frac{a}{\text{denom}} \right) = \frac{\text{denom} - a \cdot (-2b \frac{\partial b}{\partial a} + c)}{\text{denom}^2} = \frac{\text{denom} - ac}{\text{denom}^2}\)
+
+#### 2. 应用链式法则
+
+接下来，应用链式法则计算 \(\frac{\partial L}{\partial a}\)：
+
+\[
+\frac{\partial L}{\partial a} = \sum_{i,j} \frac{\partial L}{\partial (\Sigma^{-1})_{ij}} \cdot \frac{\partial (\Sigma^{-1})_{ij}}{\partial a}
+\]
+
+将上述偏导数代入公式中：
+
+\[
+\frac{\partial L}{\partial a} = \frac{\partial L}{\partial (\Sigma^{-1})_{11}} \cdot \frac{-c^2}{\text{denom}^2} + \frac{\partial L}{\partial (\Sigma^{-1})_{12}} \cdot \frac{2bc}{\text{denom}^2} + \frac{\partial L}{\partial (\Sigma^{-1})_{22}} \cdot \frac{\text{denom} - ac}{\text{denom}^2}
+\]
+
+简化得到：
+
+\[
+\frac{\partial L}{\partial a} = \frac{1}{\text{denom}^2} \left(-c^2 \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{11}} + 2bc \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{12}} + (\text{denom} - ac) \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{22}}\right)
+\]
+
+这正是代码中的表达式：
+
+```cpp
+dL_da = denom2inv * (-c * c * dL_dconic.x + 2 * b * c * dL_dconic.y + (denom - a * c) * dL_dconic.z);
+```
+
+其中，`denom2inv` 就是 \(\frac{1}{\text{denom}^2}\)。
+
+
+5、损失函数对3D协方差矩阵的梯度
+设T为定值，cov_{3D}为变量
+
+在3D到2D投影的过程中，3D协方差矩阵 \(V_{rk}\) 通过一个变换矩阵 \(T\) 投影到2D空间中形成2D协方差矩阵 \(cov_{2D}\)：
+
+\[
+cov_{2D} = T^T \cdot cov_{3D} \cdot T
+\]
+
+其中，\(T\) 是从3D空间到2D屏幕空间的变换矩阵。
+$$
+\frac{\partial L}{\partial cov_{3D} } = 
+\frac{\partial L}{\partial cov_{2D} } \frac{\partial cov_{2D}}{\partial cov_{3D} } = 
+\frac{\partial L}{\partial cov_{2D} } T^TT
+$$
+
+
+6、损失函数对3D空间到2D屏幕空间的变换矩阵的梯度
+设T为变值，cov_{3D}为定值
+$$
+\frac{\partial L}{\partial T } = 
+\frac{\partial L}{\partial cov_{2D} } \frac{\partial cov_{2D}}{\partial T } = 
+\frac{\partial L}{\partial cov_{2D} } cov_{3D}(T^T+T)
+$$
+
+7、损失函数对J的梯度
+$$T=WJ$$
+$$
+\frac{\partial L}{\partial J } = 
+\frac{\partial L}{\partial T } \frac{\partial T}{\partial J} = 
+\frac{\partial L}{\partial T } W
+$$
+
+8、损失函数对3D位置的梯度（协方差矩阵）
+
+由
 
 \[ J = \begin{bmatrix}
 \frac{\partial x}{\partial X} & \frac{\partial x}{\partial Y} & \frac{\partial x}{\partial Z} \\
@@ -251,185 +524,16 @@ C_{\text{out}} = \alpha \cdot C_1 + (1 - \alpha) \cdot C_2
 - 对于 \(x\) 方向：\[ \frac{\partial x}{\partial X} = \frac{f_x}{Z}, \quad \frac{\partial x}{\partial Y} = 0, \quad \frac{\partial x}{\partial Z} = -\frac{f_x X}{Z^2} \]
 - 对于 \(y\) 方向：\[ \frac{\partial y}{\partial X} = 0, \quad \frac{\partial y}{\partial Y} = \frac{f_y}{Z}, \quad \frac{\partial y}{\partial Z} = -\frac{f_y Y}{Z^2} \]
 
+因此，
+$$
+\frac{\partial L}{\partial X } = 
+\frac{\partial L}{\partial J } \frac{\partial J}{\partial X} 
+$$
 
 
-这段代码计算的是损失函数相对于2D协方差矩阵各元素的梯度，给定损失函数相对于该协方差矩阵逆矩阵（即共轭矩阵）的梯度。具体来说，它使用链式法则来从损失关于逆协方差矩阵的梯度推导出损失关于原始协方差矩阵元素的梯度。
 
-### 背景知识
-
-对于一个2x2的协方差矩阵 \(\Sigma\) 和其逆矩阵（共轭矩阵）\(\Sigma^{-1}\)，我们有：
-
-\[
-\Sigma = \begin{pmatrix} a & b \\ b & c \end{pmatrix}, \quad \Sigma^{-1} = \frac{1}{ac - b^2} \begin{pmatrix} c & -b \\ -b & a \end{pmatrix}
-\]
-
-其中，\(a\), \(b\), \(c\) 分别是协方差矩阵的元素，而 \(ac - b^2\) 是其行列式（记作 `denom`）。通过链式法则，可以从损失函数关于逆矩阵的梯度推导出关于原矩阵的梯度。
-
-### 代码解析
-
-```cpp
-dL_da = denom2inv * (-c * c * dL_dconic.x + 2 * b * c * dL_dconic.y + (denom - a * c) * dL_dconic.z);
-dL_dc = denom2inv * (-a * a * dL_dconic.z + 2 * a * b * dL_dconic.y + (denom - a * c) * dL_dconic.x);
-dL_db = denom2inv * 2 * (b * c * dL_dconic.x - (denom + 2 * b * b) * dL_dconic.y + a * b * dL_dconic.z);
-```
-
-- **`dL_dconic.x`, `dL_dconic.y`, `dL_dconic.z`**: 分别代表损失函数相对于逆协方差矩阵各元素的梯度。
-  
-- **`denom2inv`**: 行列式的平方加上一个小常数（防止除以零错误）的倒数，用于数值稳定性的保证。
-
-#### 梯度公式解释
-
-1. **`dL_da`**:
-   \[
-   \frac{\partial L}{\partial a} = \text{denom2inv} \times (-c^2 \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{11}} + 2bc \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{12}} + (\text{denom} - ac) \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{22}})
-   \]
-   这里，\(\frac{\partial L}{\partial (\Sigma^{-1})_{ij}}\) 分别对应于 `dL_dconic.x`, `dL_dconic.y`, `dL_dconic.z`。
-
-2. **`dL_dc`**:
-   \[
-   \frac{\partial L}{\partial c} = \text{denom2inv} \times (-a^2 \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{22}} + 2ab \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{12}} + (\text{denom} - ac) \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{11}})
-   \]
-
-3. **`dL_db`**:
-   \[
-   \frac{\partial L}{\partial b} = 2 \times \text{denom2inv} \times (bc \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{11}} - (\text{denom} + 2b^2) \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{12}} + ab \cdot \frac{\partial L}{\partial (\Sigma^{-1})_{22}})
-   \]
-
-### 链式法则的应用
-
-这些公式的推导基于链式法则，考虑了损失函数如何通过逆协方差矩阵影响原始协方差矩阵的各个元素。具体来说：
-
-- **`denom2inv`**: 作为分母的一部分，确保了数值稳定性，并且正确地缩放了梯度。
-- **各项乘积和加权求和**: 反映了损失函数关于逆协方差矩阵的梯度如何传播到原始协方差矩阵的不同元素上。
-
-
-这段代码是在计算损失函数 \(L\) 关于3D协方差矩阵（记作 \(V_{rk}\)）各个元素的梯度，给定损失函数关于2D协方差矩阵的梯度。具体来说，它利用了链式法则，通过已知的2D协方差矩阵的梯度来推导出原始3D协方差矩阵的梯度。
-
-### 背景
-
-在3D到2D投影的过程中，3D协方差矩阵 \(V_{rk}\) 通过一个变换矩阵 \(T\) 投影到2D空间中形成2D协方差矩阵 \(cov_{2D}\)：
-
-\[
-cov_{2D} = T^T \cdot V_{rk}^T \cdot T
-\]
-
-其中，\(T\) 是从3D空间到2D屏幕空间的变换矩阵。
-
-### 计算梯度
-
-#### 对角元素的梯度
-
-```cpp
-dL_dcov[6 * idx + 0] = (T[0][0] * T[0][0] * dL_da + T[0][0] * T[1][0] * dL_db + T[1][0] * T[1][0] * dL_dc);
-dL_dcov[6 * idx + 3] = (T[0][1] * T[0][1] * dL_da + T[0][1] * T[1][1] * dL_db + T[1][1] * T[1][1] * dL_dc);
-dL_dcov[6 * idx + 5] = (T[0][2] * T[0][2] * dL_da + T[0][2] * T[1][2] * dL_db + T[1][2] * T[1][2] * dL_dc);
-```
-
-这些表达式分别计算了 \(V_{rk}\) 的对角元素 \(V_{rk}[0][0]\), \(V_{rk}[1][1]\), 和 \(V_{rk}[2][2]\) 的梯度。
-
-- **公式解释**：
-  - \(dL_dcov[6 * idx + 0]\): 计算了 \(V_{rk}[0][0]\) 的梯度。
-    \[
-    \frac{\partial L}{\partial V_{rk}[0][0]} = T[0][0]^2 \cdot \frac{\partial L}{\partial a} + T[0][0] \cdot T[1][0] \cdot \frac{\partial L}{\partial b} + T[1][0]^2 \cdot \frac{\partial L}{\partial c}
-    \]
-  - \(dL_dcov[6 * idx + 3]\): 计算了 \(V_{rk}[1][1]\) 的梯度。
-    \[
-    \frac{\partial L}{\partial V_{rk}[1][1]} = T[0][1]^2 \cdot \frac{\partial L}{\partial a} + T[0][1] \cdot T[1][1] \cdot \frac{\partial L}{\partial b} + T[1][1]^2 \cdot \frac{\partial L}{\partial c}
-    \]
-  - \(dL_dcov[6 * idx + 5]\): 计算了 \(V_{rk}[2][2]\) 的梯度。
-    \[
-    \frac{\partial L}{\partial V_{rk}[2][2]} = T[0][2]^2 \cdot \frac{\partial L}{\partial a} + T[0][2] \cdot T[1][2] \cdot \frac{\partial L}{\partial b} + T[1][2]^2 \cdot \frac{\partial L}{\partial c}
-    \]
-
-#### 非对角元素的梯度
-
-```cpp
-dL_dcov[6 * idx + 1] = 2 * T[0][0] * T[0][1] * dL_da + (T[0][0] * T[1][1] + T[0][1] * T[1][0]) * dL_db + 2 * T[1][0] * T[1][1] * dL_dc;
-dL_dcov[6 * idx + 2] = 2 * T[0][0] * T[0][2] * dL_da + (T[0][0] * T[1][2] + T[0][2] * T[1][0]) * dL_db + 2 * T[1][0] * T[1][2] * dL_dc;
-dL_dcov[6 * idx + 4] = 2 * T[0][2] * T[0][1] * dL_da + (T[0][1] * T[1][2] + T[0][2] * T[1][1]) * dL_db + 2 * T[1][1] * T[1][2] * dL_dc;
-```
-
-这些表达式分别计算了 \(V_{rk}\) 的非对角元素 \(V_{rk}[0][1]\), \(V_{rk}[0][2]\), 和 \(V_{rk}[1][2]\) 的梯度。
-
-- **公式解释**：
-  - \(dL_dcov[6 * idx + 1]\): 计算了 \(V_{rk}[0][1]\) 的梯度。
-    \[
-    \frac{\partial L}{\partial V_{rk}[0][1]} = 2 \cdot T[0][0] \cdot T[0][1] \cdot \frac{\partial L}{\partial a} + (T[0][0] \cdot T[1][1] + T[0][1] \cdot T[1][0]) \cdot \frac{\partial L}{\partial b} + 2 \cdot T[1][0] \cdot T[1][1] \cdot \frac{\partial L}{\partial c}
-    \]
-  - \(dL_dcov[6 * idx + 2]\): 计算了 \(V_{rk}[0][2]\) 的梯度。
-    \[
-    \frac{\partial L}{\partial V_{rk}[0][2]} = 2 \cdot T[0][0] \cdot T[0][2] \cdot \frac{\partial L}{\partial a} + (T[0][0] \cdot T[1][2] + T[0][2] \cdot T[1][0]) \cdot \frac{\partial L}{\partial b} + 2 \cdot T[1][0] \cdot T[1][2] \cdot \frac{\partial L}{\partial c}
-    \]
-  - \(dL_dcov[6 * idx + 4]\): 计算了 \(V_{rk}[1][2]\) 的梯度。
-    \[
-    \frac{\partial L}{\partial V_{rk}[1][2]} = 2 \cdot T[0][2] \cdot T[0][1] \cdot \frac{\partial L}{\partial a} + (T[0][1] \cdot T[1][2] + T[0][2] \cdot T[1][1]) \cdot \frac{\partial L}{\partial b} + 2 \cdot T[1][1] \cdot T[1][2] \cdot \frac{\partial L}{\partial c}
-    \]
-
-### 链式法则的应用
-
-上述公式的推导基于链式法则，考虑了损失函数 \(L\) 如何通过2D协方差矩阵 \(cov_{2D}\) 影响原始3D协方差矩阵 \(V_{rk}\) 的各个元素。具体来说，每个 \(V_{rk}\) 元素的梯度是通过对 \(cov_{2D}\) 各个元素的梯度进行加权求和得到的，权重由变换矩阵 \(T\) 的元素决定。
-
-
-这段代码计算的是损失函数 \(L\) 关于变换矩阵 \(T\) 的梯度。具体来说，它基于已知的损失函数关于2D协方差矩阵（\(cov_{2D}\)）的梯度，通过链式法则推导出损失函数关于中间矩阵 \(T\) 各元素的梯度。
-
-### 背景
-
-在3D到2D投影的过程中，3D协方差矩阵 \(V_{rk}\) 通过一个变换矩阵 \(T\) 投影到2D空间中形成2D协方差矩阵 \(cov_{2D}\)：
-
-\[
-cov_{2D} = T^T \cdot V_{rk}^T \cdot T
-\]
-
-其中，\(T\) 是从3D空间到2D屏幕空间的变换矩阵。为了优化模型参数，我们需要计算损失函数 \(L\) 关于 \(T\) 各个元素的梯度。
-
-### 计算梯度
-
-#### 公式解析
-
-```cpp
-float dL_dT00 = 2 * (T[0][0] * Vrk[0][0] + T[0][1] * Vrk[0][1] + T[0][2] * Vrk[0][2]) * dL_da +
-               (T[1][0] * Vrk[0][0] + T[1][1] * Vrk[0][1] + T[1][2] * Vrk[0][2]) * dL_db;
-float dL_dT01 = 2 * (T[0][0] * Vrk[1][0] + T[0][1] * Vrk[1][1] + T[0][2] * Vrk[1][2]) * dL_da +
-               (T[1][0] * Vrk[1][0] + T[1][1] * Vrk[1][1] + T[1][2] * Vrk[1][2]) * dL_db;
-float dL_dT02 = 2 * (T[0][0] * Vrk[2][0] + T[0][1] * Vrk[2][1] + T[0][2] * Vrk[2][2]) * dL_da +
-               (T[1][0] * Vrk[2][0] + T[1][1] * Vrk[2][1] + T[1][2] * Vrk[2][2]) * dL_db;
-
-float dL_dT10 = 2 * (T[1][0] * Vrk[0][0] + T[1][1] * Vrk[0][1] + T[1][2] * Vrk[0][2]) * dL_dc +
-               (T[0][0] * Vrk[0][0] + T[0][1] * Vrk[0][1] + T[0][2] * Vrk[0][2]) * dL_db;
-float dL_dT11 = 2 * (T[1][0] * Vrk[1][0] + T[1][1] * Vrk[1][1] + T[1][2] * Vrk[1][2]) * dL_dc +
-               (T[0][0] * Vrk[1][0] + T[0][1] * Vrk[1][1] + T[0][2] * Vrk[1][2]) * dL_db;
-float dL_dT12 = 2 * (T[1][0] * Vrk[2][0] + T[1][1] * Vrk[2][1] + T[1][2] * Vrk[2][2]) * dL_dc +
-               (T[0][0] * Vrk[2][0] + T[0][1] * Vrk[2][1] + T[0][2] * Vrk[2][2]) * dL_db;
-```
-
-- **`dL_dT00`, `dL_dT01`, `dL_dT02`**: 分别是 \(T\) 第一行各元素相对于损失函数的梯度。
-- **`dL_dT10`, `dL_dT11`, `dL_dT12`**: 分别是 \(T\) 第二行各元素相对于损失函数的梯度。
-
-#### 链式法则的应用
-
-这些公式利用了链式法则来计算损失函数 \(L\) 关于 \(T\) 各元素的梯度。具体来说：
-
-1. **对角项的贡献**：
-   - 对于 \(dL_dT00\)、\(dL_dT01\) 和 \(dL_dT02\)，它们考虑了 \(T\) 第一行与 \(V_{rk}\) 相乘后对 \(cov_{2D}\) 的影响，并进一步乘以 \(dL_da\) 或 \(dL_db\)。
-   - 例如，对于 \(dL_dT00\)：
-     \[
-     \frac{\partial L}{\partial T[0][0]} = 2 \cdot \left(T[0][0] \cdot V_{rk}[0][0] + T[0][1] \cdot V_{rk}[0][1] + T[0][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial a} + \left(T[1][0] \cdot V_{rk}[0][0] + T[1][1] \cdot V_{rk}[0][1] + T[1][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial b}
-     \]
-
-2. **非对角项的贡献**：
-   - 对于 \(dL_dT10\)、\(dL_dT11\) 和 \(dL_dT12\)，它们考虑了 \(T\) 第二行与 \(V_{rk}\) 相乘后对 \(cov_{2D}\) 的影响，并进一步乘以 \(dL_dc\) 或 \(dL_db\)。
-   - 例如，对于 \(dL_dT10\)：
-     \[
-     \frac{\partial L}{\partial T[1][0]} = 2 \cdot \left(T[1][0] \cdot V_{rk}[0][0] + T[1][1] \cdot V_{rk}[0][1] + T[1][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial c} + \left(T[0][0] \cdot V_{rk}[0][0] + T[0][1] \cdot V_{rk}[0][1] + T[0][2] \cdot V_{rk}[0][2]\right) \cdot \frac{\partial L}{\partial b}
-     \]
-
-
-$$ dl/dx = dl/dl02 * dl02/dx $$
-
-
-为了详细解释如何计算损失函数 \(L\) 关于3D均值 \(m = (m_x, m_y, m_z)\) 的梯度，我们需要从透视投影的基本原理出发，并使用链式法则来推导这些偏导数。
-
-### 1. 透视投影变换
+9、损失函数对3D位置的梯度（位置带来的误差）
+（1）透视投影变换
 
 给定一个3D点 \(m = (m_x, m_y, m_z)\)，其齐次坐标为 \([m_x, m_y, m_z, 1]\)。应用4x4的透视投影矩阵 `proj` 后，得到新的齐次坐标：
 
@@ -544,30 +648,170 @@ x' = \frac{\text{m\_hom}_x}{\text{m\_hom}_w}, \quad y' = \frac{\text{m\_hom}_y}{
 \frac{\partial L}{\partial m_i} = \sum_{j \in \{x', y'\}} \left( \frac{\partial x'}{\partial m_i} \cdot \frac{\partial L}{\partial x'} + \frac{\partial y'}{\partial m_i} \cdot \frac{\partial L}{\partial y'} \right)
 \]
 
-具体实现如下：
+10、损失函数对协方差参数S、旋转矩阵R（四元数）的梯度
+$$ M = S * R$$
+$$ cov_{3D} = M^TM$$
+所以
+$$ 
+\frac{\partial L}{\partial M} = 2M\frac{\partial L}{\partial \sigma}
+$$
+
+$$
+\frac{\partial L}{\partial S} = R\frac{\partial L}{\partial M^T}
+$$
+
+$$
+\frac{\partial L}{\partial R} = S\frac{\partial L}{\partial M^T}
+$$
+
+
+为了推导损失函数关于四元数 \(q = (r, x, y, z)\) 的梯度，我们需要从旋转矩阵 \(R\) 对四元数的偏导数出发，并结合链式法则来计算最终的梯度。下面将详细解释如何得到这些公式。
+
+### 1. 四元数与旋转矩阵的关系
+
+给定一个单位四元数 \(q = (r, x, y, z)\)，其对应的旋转矩阵 \(R\) 可以表示为：
+
+\[
+R(q) = 
+\begin{bmatrix}
+1 - 2(y^2 + z^2) & 2(xy - rz) & 2(xz + ry) \\
+2(xy + rz) & 1 - 2(x^2 + z^2) & 2(yz - rx) \\
+2(xz - ry) & 2(yz + rx) & 1 - 2(x^2 + y^2)
+\end{bmatrix}
+\]
+
+
+### 2. 计算旋转矩阵 \(R\) 对四元数 \(q\) 的偏导数
+
+对于每个四元数分量 \(q_i\)（\(i \in \{r, x, y, z\}\)），我们需要计算其对旋转矩阵 \(R\) 中每个元素的偏导数。
+
+#### 偏导数的计算
+
+- **\(\frac{\partial R}{\partial r}\)**：
+  \[
+  \frac{\partial R}{\partial r} = 
+  \begin{bmatrix}
+  0 & -2z & 2y \\
+  2z & 0 & -2x \\
+  -2y & 2x & 0
+  \end{bmatrix}
+  \]
+
+- **\(\frac{\partial R}{\partial x}\)**：
+  \[
+  \frac{\partial R}{\partial x} = 
+  \begin{bmatrix}
+  -4x & 2y & 2z \\
+  2y & 0 & -2r \\
+  2z & 2r & 0
+  \end{bmatrix}
+  \]
+
+- **\(\frac{\partial R}{\partial y}\)**：
+  \[
+  \frac{\partial R}{\partial y} = 
+  \begin{bmatrix}
+  0 & 2x & -2r \\
+  2x & -4y & 2z \\
+  2r & 2z & 0
+  \end{bmatrix}
+  \]
+
+- **\(\frac{\partial R}{\partial z}\)**：
+  \[
+  \frac{\partial R}{\partial z} = 
+  \begin{bmatrix}
+  0 & 2r & 2x \\
+  -2r & 0 & 2y \\
+  2x & 2y & -4z
+  \end{bmatrix}
+  \]
+
+### 3. 应用链式法则
+
+根据链式法则，损失函数关于四元数 \(q\) 的梯度可以表示为：
+
+\[
+\frac{\partial L}{\partial q} = \sum_{i,j} \left( \frac{\partial R_{ij}}{\partial q_k} \cdot \frac{\partial L}{\partial R_{ij}} \right)
+\]
+
+其中，\(\frac{\partial L}{\partial R_{ij}}\) 是损失函数关于旋转矩阵 \(R\) 的梯度，使用求和符号把每个元素的梯度累加起来。
+
+
+
+
+
+
+
+
+## 补充：
+在协方差矩阵的梯度转换过程中乘以0.5，主要是因为协方差矩阵是对称矩阵。这意味着它的元素满足 \( \Sigma_{ij} = \Sigma_{ji} \)，因此在计算损失函数关于这些元素的梯度时，需要考虑到这种对称性。
+
+### 协方差矩阵及其对称性
+
+对于一个3D协方差矩阵 \(\Sigma\)，它是一个3x3的对称矩阵：
+
+\[
+\Sigma = 
+\begin{bmatrix}
+\Sigma_{00} & \Sigma_{01} & \Sigma_{02} \\
+\Sigma_{10} & \Sigma_{11} & \Sigma_{12} \\
+\Sigma_{20} & \Sigma_{21} & \Sigma_{22}
+\end{bmatrix}
+\]
+
+由于 \(\Sigma\) 是对称的，我们有：
+
+- \(\Sigma_{01} = \Sigma_{10}\)
+- \(\Sigma_{02} = \Sigma_{20}\)
+- \(\Sigma_{12} = \Sigma_{21}\)
+
+因此，在优化过程中，当我们考虑某个非对角线元素（如 \(\Sigma_{01}\)）的变化对损失函数的影响时，实际上是在同时考虑了两个等效变化：一个是 \(\Sigma_{01}\) 的变化，另一个是 \(\Sigma_{10}\) 的变化。这两个变化对损失函数的影响是相同的，因为它们实际上是同一个值。
+
+### 梯度计算中的对称性处理
+
+假设损失函数 \(L\) 关于协方差矩阵 \(\Sigma\) 的梯度被存储在一个数组 `dL_dcov3D` 中，按照以下顺序存储：
+
+- `dL_dcov3D[0]`: \(\frac{\partial L}{\partial \Sigma_{00}}\)
+- `dL_dcov3D[1]`: \(\frac{\partial L}{\partial \Sigma_{01}}\)
+- `dL_dcov3D[2]`: \(\frac{\partial L}{\partial \Sigma_{02}}\)
+- `dL_dcov3D[3]`: \(\frac{\partial L}{\partial \Sigma_{11}}\)
+- `dL_dcov3D[4]`: \(\frac{\partial L}{\partial \Sigma_{12}}\)
+- `dL_dcov3D[5]`: \(\frac{\partial L}{\partial \Sigma_{22}}\)
+
+由于 \(\Sigma\) 的对称性，对于每个非对角线元素（如 \(\Sigma_{01}\)），其梯度应该平均分配给 \(\Sigma_{01}\) 和 \(\Sigma_{10}\)。因此，在将这些梯度重新组织成矩阵形式时，我们需要将非对角线元素的梯度除以2。
+
+### 代码实现
 
 ```cpp
-float mul1 = (proj[0] * m.x + proj[4] * m.y + proj[8] * m.z + proj[12]) * m_w * m_w;
-float mul2 = (proj[1] * m.x + proj[5] * m.y + proj[9] * m.z + proj[13]) * m_w * m_w;
-
-dL_dmean.x = (proj[0] * m_w - proj[3] * mul1) * dL_dmean2D[idx].x + (proj[1] * m_w - proj[3] * mul2) * dL_dmean2D[idx].y;
-dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
-dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
+glm::mat3 dL_dSigma = glm::mat3(
+    dL_dcov3D[0], 0.5f * dL_dcov3D[1], 0.5f * dL_dcov3D[2],
+    0.5f * dL_dcov3D[1], dL_dcov3D[3], 0.5f * dL_dcov3D[4],
+    0.5f * dL_dcov3D[2], 0.5f * dL_dcov3D[4], dL_dcov3D[5]
+);
 ```
+
+- **对角线元素**（如 `dL_dcov3D[0]`, `dL_dcov3D[3]`, `dL_dcov3D[5]`）直接使用，因为它们只对应一个位置。
+- **非对角线元素**（如 `dL_dcov3D[1]`, `dL_dcov3D[2]`, `dL_dcov3D[4]`）乘以0.5，因为在反向传播过程中，它们代表了两个等价位置的梯度（例如，`dL_dcov3D[1]` 同时代表 \(\frac{\partial L}{\partial \Sigma_{01}}\) 和 \(\frac{\partial L}{\partial \Sigma_{10}}\)）。
 
 ### 具体解释
 
-1. **`mul1` 和 `mul2`**：
-   - 这些中间变量分别代表了与 \(x'\) 和 \(y'\) 投影相关的线性组合项乘以 \(m_w^2\)。
-   - `mul1` 对应于 \(x'\) 方向的线性组合：\(mul1 = (\text{proj}_{00} \cdot m_x + \text{proj}_{04} \cdot m_y + \text{proj}_{08} \cdot m_z + \text{proj}_{12}) \cdot m_w^2\)
-   - `mul2` 对应于 \(y'\) 方向的线性组合：\(mul2 = (\text{proj}_{01} \cdot m_x + \text{proj}_{05} \cdot m_y + \text{proj}_{09} \cdot m_z + \text{proj}_{13}) \cdot m_w^2\)
+假设我们有一个损失函数 \(L\)，其关于协方差矩阵 \(\Sigma\) 的梯度为：
 
-2. **`dL_dmean.x`**：
-   - 计算了损失函数关于 \(m_x\) 的梯度，考虑了 \(x'\) 和 \(y'\) 方向的影响。
-   - `(proj[0] * m_w - proj[3] * mul1)` 反映了 \(x'\) 方向上 \(m_x\) 的变化对最终损失函数的影响。
-   - `(proj[1] * m_w - proj[3] * mul2)` 反映了 \(y'\) 方向上 \(m_x\) 的变化对最终损失函数的影响。
+- \(\frac{\partial L}{\partial \Sigma_{01}} = g_{01}\)
+- \(\frac{\partial L}{\partial \Sigma_{10}} = g_{10}\)
 
-3. **`dL_dmean.y` 和 `dL_dmean.z`**：
-   - 类似地，它们分别计算了损失函数关于 \(m_y\) 和 \(m_z\) 的梯度，考虑了 \(x'\) 和 \(y'\) 方向上的影响。
+由于 \(\Sigma_{01} = \Sigma_{10}\)，我们有 \(g_{01} = g_{10}\)。因此，在实际计算中，我们将这两个梯度合并为一个值，并在构建梯度矩阵时将其除以2：
 
-通过这种方式，代码有效地将损失函数关于2D投影点的梯度反向传播回3D空间中的均值 \(m\)，使得模型能够更好地拟合观测数据。这种方法对于涉及复杂3D-2D映射问题的应用至关重要，如计算机视觉、增强现实或机器学习中的应用。
+\[ 
+\text{Gradient matrix element at } (0, 1) = \frac{g_{01}}{2}
+\]
+\[ 
+\text{Gradient matrix element at } (1, 0) = \frac{g_{10}}{2}
+\]
+
+这样做确保了我们在反向传播过程中正确地反映了协方差矩阵的对称性，避免了重复计算或不正确的梯度分配。
+
+### 总结
+
+乘以0.5的原因在于协方差矩阵的对称性。为了正确处理这种对称性并确保梯度的正确分配，非对角线元素的梯度在构建梯度矩阵时需要除以2。这样可以保证在优化过程中，每个参数更新步骤都准确反映了损失函数对各个参数的实际影响。这种方法对于涉及复杂3D-2D映射问题的应用至关重要，如计算机视觉、增强现实或机器学习中的应用。

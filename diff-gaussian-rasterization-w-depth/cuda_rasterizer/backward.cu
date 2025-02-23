@@ -298,11 +298,11 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
 	S[1][1] = s.y;
 	S[2][2] = s.z;
 
-	glm::mat3 M = S * R;
+	glm::mat3 M = S * R;  //计算协方差
 
 	const float* dL_dcov3D = dL_dcov3Ds + 6 * idx;
 
-	glm::vec3 dunc(dL_dcov3D[0], dL_dcov3D[3], dL_dcov3D[5]);
+	glm::vec3 dunc(dL_dcov3D[0], dL_dcov3D[3], dL_dcov3D[5]);  //对角线
 	glm::vec3 ounc = 0.5f * glm::vec3(dL_dcov3D[1], dL_dcov3D[2], dL_dcov3D[4]);
 
 	// Convert per-element covariance loss gradients to matrix form
@@ -325,7 +325,7 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
 	dL_dscale->y = glm::dot(Rt[1], dL_dMt[1]);
 	dL_dscale->z = glm::dot(Rt[2], dL_dMt[2]);
 
-	dL_dMt[0] *= s.x;
+	dL_dMt[0] *= s.x; //提前乘了Mt与R之间的关系，则dL_dMt = dL_dR
 	dL_dMt[1] *= s.y;
 	dL_dMt[2] *= s.z;
 
@@ -470,7 +470,7 @@ renderCUDA(
 		const int progress = i * BLOCK_SIZE + block.thread_rank();
 		if (range.x + progress < range.y)
 		{
-			const int coll_id = point_list[range.y - progress - 1];
+			const int coll_id = point_list[range.y - progress - 1]; //这里的点与前向传播顺序相反
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id]; //高斯分布坐标
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
@@ -486,10 +486,10 @@ renderCUDA(
 			// is behind the last contributor for this pixel.
 			contributor--;
 			if (contributor >= last_contributor)
-				continue;
+				continue;  //找到跟渲染相关的最后一层
 
 			// Compute blending values, as before.
-			const float2 xy = collected_xy[j];
+			const float2 xy = collected_xy[j];//数据已经倒过来了，可以直接索引
 			const float2 d = { xy.x - pixf.x, xy.y - pixf.y };
 			const float4 con_o = collected_conic_opacity[j];
 			const float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y;
@@ -501,7 +501,7 @@ renderCUDA(
 			if (alpha < 1.0f / 255.0f)
 				continue;
 
-			T = T / (1.f - alpha);//没经过上一层时剩余的透明度
+			T = T / (1.f - alpha);//当前层透明度
 			const float dchannel_dcolor = alpha * T; //计算当前层颜色的贡献度
 
 			// Propagate gradients to per-Gaussian colors and keep

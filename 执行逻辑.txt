@@ -191,7 +191,7 @@ geomState:
     point_offsets:每个高斯分布触及的瓦片的累积偏移量
 
 binningState:
-    point_list_keys_unsorted:大小为每个高斯分布触及的瓦片数量的总和，前64位记录瓦片位置，后32位为深度geomState.depths，每个高斯分布占用多个瓦片，所以一个i高斯分布会记录多个，索引是point_offsets的对应值
+    point_list_keys_unsorted:大小为每个高斯分布触及的瓦片数量的总和，前64位记录瓦片位置，后32位为深度geomState.depths，每个高斯分布占用多个瓦片，所以一个高斯分布会记录多个，索引是point_offsets的对应值
     point_list_unsorted:值是点位置的索引，索引是point_offsets的对应值
     list_sorting_space:临时空间，无用
     sorting_size:临时空间，无用

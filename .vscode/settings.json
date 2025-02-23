@@ -71,6 +71,7 @@
         "variant": "cpp",
         "*.ipp": "cpp",
         "forward_list": "cpp",
-        "__functional_base": "cpp"
+        "__functional_base": "cpp",
+        "__config": "cpp"
     }
 }
